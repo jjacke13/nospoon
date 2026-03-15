@@ -1,0 +1,27 @@
+{
+  "name": "nospoon",
+  "version": "0.1.0",
+  "description": "P2P VPN over HyperDHT - WireGuard-like interface using Hyperswarm",
+  "main": "lib/server.js",
+  "bin": {
+    "nospoon": "bin/cli.js"
+  },
+  "scripts": {
+    "server": "node bin/cli.js server",
+    "client": "node bin/cli.js client"
+  },
+  "keywords": [
+    "p2p",
+    "vpn",
+    "hyperdht",
+    "holesail",
+    "tun"
+  ],
+  "author": "Vaios K",
+  "license": "GPL-3.0-only",
+  "type": "commonjs",
+  "dependencies": {
+    "hyperdht": "^6.29.1",
+    "koffi": "^2.15.2"
+  }
+}
