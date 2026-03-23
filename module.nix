@@ -188,8 +188,7 @@ in {
         ExecStart = "${nospoonWrapper}/bin/nospoon-wrapper ${cfg.mode} ${execFlags}";
         Restart = "on-failure";
         RestartSec = "5s";
-        CapabilityBoundingSet = "cap-net-admin";
-        AmbientCapabilities = "cap-net-admin";
+        # Runs as root — no capability restrictions needed
       };
     };
   };
