@@ -24,6 +24,7 @@ let
     ++ ["--ip" cfg.ip]
     ++ lib.optionals (cfg.ipv6 != null) ["--ipv6" cfg.ipv6]
     ++ lib.optionals (cfg.peersFile != null) ["--config" cfg.peersFile]
+    ++ lib.optionals (cfg.peers != { } && cfg.peersFile == null) ["--config" "${cfg.dataDir}/peers.json"]
     ++ lib.optionals (cfg.mtu != 1400) ["--mtu" (toString cfg.mtu)]
     ++ lib.optionals cfg.fullTunnel ["--full-tunnel"]
     ++ lib.optionals (cfg.outInterface != null) ["--out-interface" cfg.outInterface]
