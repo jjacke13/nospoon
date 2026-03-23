@@ -13,6 +13,7 @@
         nixpkgs.lib.genAttrs supportedSystems (system: f {
           pkgs = nixpkgs.legacyPackages.${system};
         });
+
     in
     {
       packages = forAllSystems ({ pkgs }: let
@@ -21,5 +22,18 @@
         default = nospoon;
         nospoon = nospoon;
       });
+
+      devShells.x86_64-linux.android = import ./android/shell.nix {
+        pkgs = import nixpkgs {
+          system = "x86_64-linux";
+          config.allowUnfree = true;
+          config.android_sdk.accept_license = true;
+        };
+      };
+
+      nixosModules = {
+        nospoon = import ./module.nix { inherit self; };
+        default = self.nixosModules.nospoon;
+      };
     };
 }
