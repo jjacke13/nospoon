@@ -20,15 +20,14 @@ let
 
   modeAndKey = if isClient then [cfg.serverAddress] else [];
 
-  baseFlags = modeAndKey ++ (
-    []
+  baseFlags = modeAndKey
     ++ ["--ip" cfg.ip]
-    ++ lib.optional (cfg.ipv6 != null) ["--ipv6" cfg.ipv6]
-    ++ lib.optional (cfg.peersFile != null) ["--config" cfg.peersFile]
-    ++ lib.optional (cfg.mtu != 1400) ["--mtu" (toString cfg.mtu)]
-    ++ lib.optional cfg.fullTunnel ["--full-tunnel"]
-    ++ lib.optional (cfg.outInterface != null) ["--out-interface" cfg.outInterface]
-  );
+    ++ lib.optionals (cfg.ipv6 != null) ["--ipv6" cfg.ipv6]
+    ++ lib.optionals (cfg.peersFile != null) ["--config" cfg.peersFile]
+    ++ lib.optionals (cfg.mtu != 1400) ["--mtu" (toString cfg.mtu)]
+    ++ lib.optionals cfg.fullTunnel ["--full-tunnel"]
+    ++ lib.optionals (cfg.outInterface != null) ["--out-interface" cfg.outInterface]
+  ;
 
   nospoonWrapper = pkgs.writeScriptBin "nospoon-wrapper" ''
     #!${pkgs.bash}/bin/bash
