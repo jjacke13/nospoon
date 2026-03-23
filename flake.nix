@@ -23,13 +23,17 @@
         nospoon = nospoon;
       });
 
-      devShells.x86_64-linux.android = import ./android/shell.nix {
-        pkgs = import nixpkgs {
-          system = "x86_64-linux";
-          config.allowUnfree = true;
-          config.android_sdk.accept_license = true;
-        };
-      };
+      devShells = nixpkgs.lib.genAttrs
+        [ "x86_64-linux" "x86_64-darwin" "aarch64-darwin" ]
+        (system: {
+          android = import ./android/shell.nix {
+            pkgs = import nixpkgs {
+              inherit system;
+              config.allowUnfree = true;
+              config.android_sdk.accept_license = true;
+            };
+          };
+        });
 
       nixosModules = {
         nospoon = import ./module.nix { inherit self; };
