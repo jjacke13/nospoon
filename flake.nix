@@ -14,23 +14,6 @@
           pkgs = nixpkgs.legacyPackages.${system};
         });
 
-      # Android dev shell
-      androidDevShell = androidPkgs.mkShell {
-        name = "nospoon-android";
-        buildInputs = with androidPkgs; [
-          android-sdk
-          androidndk
-          openjdk17
-          gradle
-          maven
-          nodejs_24
-        ];
-        shellHook = ''
-          export ANDROID_HOME="${androidPkgs.android-sdk}"
-          export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export ANDROID_NDK_HOME="${androidPkgs.androidndk}/libexec/android-ndk"
-        '';
-      };
     in
     {
       packages = forAllSystems ({ pkgs }: let
@@ -40,7 +23,13 @@
         nospoon = nospoon;
       });
 
-      devShells.x86_64-linux.android = androidDevShell;
+      devShells.x86_64-linux.android = import ./android/shell.nix {
+        pkgs = import nixpkgs {
+          system = "x86_64-linux";
+          config.allowUnfree = true;
+          config.android_sdk.accept_license = true;
+        };
+      };
 
       nixosModules = {
         nospoon = import ./module.nix { inherit self; };
