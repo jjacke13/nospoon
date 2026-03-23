@@ -165,7 +165,7 @@ in {
 
     system.activationScripts.nospoon-seed = lib.stringAfter ["users"] ''
       if [ ! -f "${cfg.dataDir}/seed" ]; then
-        head -c 32 /dev/urandom | xxd -p -c 64 > "${cfg.dataDir}/seed"
+        ${pkgs.openssl}/bin/openssl rand -hex 32 > "${cfg.dataDir}/seed"
         chmod 600 "${cfg.dataDir}/seed"
         echo "nospoon: generated seed file at ${cfg.dataDir}/seed"
       fi
