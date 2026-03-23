@@ -44,7 +44,15 @@ let
     fi
     ''}
 
-    exec ${cfg.package}/bin/nospoon "$MODE" "$@"
+    # Capture public key from output and write to file
+    ${cfg.package}/bin/nospoon "$MODE" "$@" 2>&1 | while IFS= read -r line; do
+      echo "$line"
+      case "$line" in
+        *"Public key:"*)
+          echo "$line" | sed 's/.*Public key:[[:space:]]*//' > "${cfg.dataDir}/public-key"
+          ;;
+      esac
+    done
   '';
 
   execFlags = lib.concatStringsSep " " baseFlags;
