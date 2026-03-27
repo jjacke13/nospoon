@@ -46,9 +46,11 @@ tun0. The OS delivers it to nginx. The reply takes the reverse path.
 
 ```
 bin/
-  cli.js              CLI entry point, argument parsing, validation
+  cli.js              CLI entry point: nospoon up [config] / nospoon genkey
 
 lib/
+  config.js           JSONC config parser, schema validation, peer validation
+  validation.js       Input validators (hex, CIDR, MTU) returning {valid, error}
   server.js           DHT server, TUN device, packet routing between clients
   client.js           DHT client, auto-reconnect, TUN device
   framing.js          Length-prefix framing for packets over byte streams
@@ -59,13 +61,12 @@ lib/
   full-tunnel.js      Platform dispatcher (loads full-tunnel-linux or -darwin)
   full-tunnel-linux.js   Linux: iptables NAT, ip route, rp_filter
   full-tunnel-darwin.js  macOS: pfctl NAT, route command, no rp_filter
-  validation.js       Standalone validation functions (for testing)
 
 test/
+  config.test.js      Tests for config loading, validation, JSONC parsing
   routing.test.js     Tests for IP parsing and router
   framing.test.js     Tests for encode/decode, overflow, keepalives
   validation.test.js  Tests for input validation functions
-  peers-config.test.js  Tests for peer config loading + subnet validation
   server-logic.test.js  Integration tests with mock connections
 ```
 
@@ -75,29 +76,29 @@ test/
 ### 1. Server starts
 
 ```
-sudo nospoon server --config peers.json
+sudo nospoon up server.jsonc
 ```
 
-1. `cli.js` parses arguments, calls `startServer()` in `server.js`
-2. `startServer()` generates a key pair from a random seed (or --seed)
+1. `cli.js` calls `loadConfig()` in `config.js` — parses JSONC, validates all fields
+2. `startServer()` generates a key pair from the seed (config or random)
 3. Creates a TUN device via `createTunDevice()` — assigns IP, sets MTU
 4. Creates a `router` — an in-memory map of `ip -> connection`
-5. Loads `peers.json` if provided — validates IPs against the server subnet
+5. If `peers` is present in config, builds a validated Map of pubkey -> IP
 6. Creates a HyperDHT server with a `firewall` callback
 7. Listens on the DHT — the server is now discoverable by its public key
 
 ### 2. Client connects
 
 ```
-sudo nospoon client <server-public-key> --seed <client-seed>
+sudo nospoon up client.jsonc
 ```
 
-1. `cli.js` parses arguments, calls `startClient()` in `client.js`
+1. `cli.js` calls `loadConfig()`, then `startClient()` in `client.js`
 2. Creates a TUN device (e.g. 10.0.0.2/24)
 3. Calls `dht.connect(serverPublicKey)` — the DHT finds the server,
    punches through NATs, establishes an encrypted Noise stream
 4. The server's `firewall` callback fires:
-   - Authenticated mode: checks if the client's public key is in `peers.json`
+   - Authenticated mode: checks if the client's public key is in `peers`
    - Open mode: allows everyone
 5. On success, the `connection` event fires on the server
 
@@ -194,34 +195,27 @@ Returns an object with a simple Map-based route table:
 - `activeCount()` — how many clients are connected
 
 
-### server.js — The Server
+### config.js — Config Loading and Validation
 
-**`ipToInt(ip)`** — Converts "10.0.0.1" to a 32-bit integer for bitwise
-subnet math.
+**`loadConfig(configPath)`** — Reads a JSONC config file, strips comments,
+validates all fields, and returns a config object. Handles:
+- JSONC comment stripping (respects strings)
+- Mode detection (`"server"` or `"client"`)
+- `seed` / `seedFile` mutual exclusivity
+- Peer validation: hex keys, valid IPs, subnet membership, no duplicates
+- Returns a pre-validated config with `peers` as a `Map<pubkeyHex, ip>`
 
-**`parseSubnet(cidr)`** — Parses "10.0.0.1/24" into:
-```
-{
-  hostIp:    167772161,  // 10.0.0.1 as integer
-  network:   167772160,  // 10.0.0.0 (first address)
-  broadcast: 167772415,  // 10.0.0.255 (last address)
-  mask:      4294967040, // 255.255.255.0
-  prefix:    24
-}
-```
-Used to validate that peer IPs are within the server's subnet.
-
-**`loadPeers(configPath, serverCidr)`** — Reads peers.json, validates:
+Peer subnet validation (moved from server.js):
 - Each key is a 64-char hex public key
 - Each IP is valid IPv4 or IPv6
-- No duplicate IPs
-- No 0.0.0.0, no loopback (127.x.x.x)
-- IP must be in server's subnet (not network address, not broadcast, not
-  server's own IP)
+- No duplicate IPs, no 0.0.0.0, no loopback
+- IP must be in server's subnet (not network/broadcast/server's own IP)
 
-Returns a `Map<publicKeyHex, ipAddress>`.
 
-**`startServer(opts)`** — The main function:
+### server.js — The Server
+
+**`startServer(opts)`** — The main function. Receives a pre-validated config
+from `loadConfig()` (peers already resolved as a Map):
 
 1. **Firewall callback**: Called by HyperDHT during the Noise handshake,
    BEFORE the connection is established. Returns `true` to reject (confusing
@@ -230,7 +224,7 @@ Returns a `Map<publicKeyHex, ipAddress>`.
 
 2. **Connection handler**: When a client connects:
    - Auth mode: immediately adds the client to the router with their
-     assigned IP from peers.json
+     assigned IP from config peers
    - Open mode: waits for the first packet to learn the client's IP
      (IP learning)
 
@@ -374,7 +368,7 @@ Same as Linux TUN.
 
 ## Full Tunnel — Routing All Traffic Through the VPN
 
-Without `--full-tunnel`, only traffic to the VPN subnet (e.g. 10.0.0.0/24)
+Without `fullTunnel`, only traffic to the VPN subnet (e.g. 10.0.0.0/24)
 goes through the tunnel. With it, ALL internet traffic goes through.
 
 ### The Split Route Trick
@@ -543,7 +537,7 @@ HyperDHT). This is the same protocol used by WireGuard. No plaintext ever
 crosses the internet.
 
 ### Authentication (Authenticated Mode)
-- Server has a `peers.json` mapping public keys to IPs
+- Server config has a `peers` map of public keys to IPs
 - `firewall` callback rejects unknown keys BEFORE the Noise handshake
   completes — the connection is never established
 - Source IP validation: even after authentication, the server checks that
@@ -558,7 +552,7 @@ crosses the internet.
 - No automatic IP assignment — client must manually choose an unused IP
 
 ### Subnet Validation
-Peer IPs in `peers.json` are validated against the server's CIDR:
+Peer IPs in the config `peers` map are validated against the server's CIDR:
 - Must be in the same subnet
 - Cannot be the network address (10.0.0.0)
 - Cannot be the broadcast address (10.0.0.255)

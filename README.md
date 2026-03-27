@@ -25,21 +25,32 @@ nospoon genkey
 #         Public key (share): def456...
 ```
 
-Create `peers.json` on the server:
-```json
+Server config (`/etc/nospoon/config.jsonc`):
+```jsonc
 {
+  "mode": "server",
   "peers": {
     "<client-public-key>": "10.0.0.2"
   }
 }
 ```
 
+Client config:
+```jsonc
+{
+  "mode": "client",
+  "server": "<server-public-key>",
+  "seed": "<client-seed>",
+  "ip": "10.0.0.2/24"
+}
+```
+
 ```bash
 # Server (behind NAT, no port forwarding needed)
-sudo nospoon server --config peers.json
+sudo nospoon up /etc/nospoon/config.jsonc
 
 # Client (anywhere in the world)
-sudo nospoon client <server-key> --seed <client-seed>
+sudo nospoon up client.jsonc
 
 # Access anything on the server
 curl http://10.0.0.1:8080       # web app
@@ -47,49 +58,68 @@ ssh user@10.0.0.1               # SSH
 ping 10.0.0.1                   # ICMP
 ```
 
-Using `--config` is recommended — it authenticates clients and assigns fixed IPs. Open mode (`sudo nospoon server` without `--config`) is available for quick testing but has no authentication and only supports a single client.
+Using `peers` is recommended — it authenticates clients and assigns fixed IPs. Open mode (omitting `peers`) is available for quick testing but has no authentication and only supports a single client.
 
 ### 2. Full tunnel — access the internet from home
 
 Route all your internet traffic through your home connection. When you're abroad, your traffic exits from your home IP — access geo-restricted content, use your home network's DNS, or just browse as if you were home.
 
-```bash
-# Server (your home machine)
-sudo nospoon server --full-tunnel --config peers.json
+Server config:
+```jsonc
+{
+  "mode": "server",
+  "fullTunnel": true,
+  "peers": { "<client-key>": "10.0.0.2" }
+}
+```
 
-# Client (your laptop abroad)
-sudo nospoon client <key> --seed <seed> --full-tunnel
+Client config:
+```jsonc
+{
+  "mode": "client",
+  "server": "<server-key>",
+  "seed": "<client-seed>",
+  "fullTunnel": true
+}
 ```
 
 Kill switch included: if the tunnel drops, traffic fails instead of leaking.
 
-## Command Reference
+## Config Reference
 
-### `sudo nospoon server [options]`
+nospoon uses JSONC config files (JSON with `//` comments). See `config.example.jsonc` for all options.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--ip <cidr>` | `10.0.0.1/24` | TUN interface IP |
-| `--ipv6 <cidr>` | none | TUN IPv6 address |
-| `--seed <hex>` | random | Deterministic server key |
-| `--config <path>` | none | Path to peers.json |
-| `--mtu <num>` | `1400` | TUN MTU |
-| `--full-tunnel` | off | Enable NAT for client internet access |
-| `--out-interface <if>` | auto | Outgoing interface for NAT |
+```bash
+sudo nospoon up [config]     # default: /etc/nospoon/config.jsonc
+nospoon genkey               # generate a key pair (no root needed)
+```
 
-### `sudo nospoon client <public-key> [options]`
+### Server config fields
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--ip <cidr>` | `10.0.0.2/24` | TUN interface IP |
-| `--ipv6 <cidr>` | none | TUN IPv6 address |
-| `--seed <hex>` | none | Client seed (for auth mode) |
-| `--mtu <num>` | `1400` | TUN MTU |
-| `--full-tunnel` | off | Route all traffic through VPN |
+| Field | Default | Description |
+|-------|---------|-------------|
+| `mode` | — | `"server"` (required) |
+| `ip` | `10.0.0.1/24` | TUN interface IP |
+| `ipv6` | none | TUN IPv6 address |
+| `seed` | random | 64-char hex seed for deterministic key |
+| `seedFile` | none | Read seed from file (mutually exclusive with `seed`) |
+| `mtu` | `1400` | TUN MTU (576–65535) |
+| `fullTunnel` | `false` | Enable NAT for client internet access |
+| `outInterface` | auto | Outgoing interface for NAT |
+| `peers` | none | Map of `"<pubkey>": "<ip>"` for auth mode |
 
-### `nospoon genkey`
+### Client config fields
 
-Generate a client key pair. No root required.
+| Field | Default | Description |
+|-------|---------|-------------|
+| `mode` | — | `"client"` (required) |
+| `server` | — | Server public key, 64 hex chars (required) |
+| `ip` | `10.0.0.2/24` | TUN interface IP |
+| `ipv6` | none | TUN IPv6 address |
+| `seed` | none | 64-char hex client seed (for auth mode) |
+| `seedFile` | none | Read seed from file (mutually exclusive with `seed`) |
+| `mtu` | `1400` | TUN MTU (576–65535) |
+| `fullTunnel` | `false` | Route all traffic through VPN |
 
 ## How It Works
 
@@ -100,11 +130,19 @@ Generate a client key pair. No root required.
 
 All traffic is end-to-end encrypted. No data passes through the DHT — it's only used for peer discovery and hole-punching. In authenticated mode, unauthorized peers are rejected during the Noise handshake before a connection is established.
 
+## Platforms
+
+| Platform | Status |
+|----------|--------|
+| Linux | Stable (x86_64, aarch64) |
+| macOS | Stable (Apple Silicon, Intel) |
+| Android | Stable (Kotlin VpnService + Bare worklet) |
+| NixOS | Module: `services.nospoon` |
+
 ## Limitations
 
 - **Symmetric NAT** — both peers behind symmetric NAT may fail to connect
-- **DNS in full-tunnel mode** — DNS is automatically switched to `1.1.1.1` / `8.8.8.8` when full-tunnel is active. Custom DNS servers (e.g. a local Pi-hole) are not yet supported — a `--dns` flag with host route exemption is planned
-- **macOS** — tested on Mac mini M4, macOS Tahoe
+- **DNS in full-tunnel mode** — DNS is automatically switched to `1.1.1.1` / `8.8.8.8` when full-tunnel is active. Custom DNS servers are not yet configurable.
 
 ## License
 
