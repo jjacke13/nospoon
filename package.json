@@ -1,6 +1,6 @@
 {
   "name": "nospoon",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "P2P VPN over HyperDHT - WireGuard-like interface using Hyperswarm",
   "main": "lib/server.js",
   "bin": {
