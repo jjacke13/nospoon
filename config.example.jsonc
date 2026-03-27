@@ -1,0 +1,32 @@
+// nospoon config — all options shown below.
+// Only "mode" is required. Everything else has defaults.
+//
+// Server and client configs are separate files — pick one mode per file.
+
+// ── Server ──────────────────────────────────────────────────────────
+{
+  "mode": "server",                   // "server" or "client" (required)
+  "ip": "10.0.0.1/24",               // TUN IPv4 address (default: 10.0.0.1/24)
+  "ipv6": "fd00::1/64",              // TUN IPv6 address (optional)
+  "seed": "aabbccdd...64hex",        // 64-char hex seed for deterministic key
+  "seedFile": "/etc/nospoon/seed",   // or read seed from file (mutually exclusive with "seed")
+  "mtu": 1400,                       // MTU size, 576–65535 (default: 1400)
+  "fullTunnel": true,                // enable NAT so clients can reach the internet
+  "outInterface": "eth0",            // outgoing interface for NAT (default: auto-detect)
+  "peers": {                         // authenticated mode — omit for open mode
+    "<client-pubkey-64hex>": "10.0.0.2",
+    "<client-pubkey-64hex>": "10.0.0.3"
+  }
+}
+
+// ── Client ──────────────────────────────────────────────────────────
+// {
+//   "mode": "client",                  // "server" or "client" (required)
+//   "server": "<server-pubkey-64hex>", // server public key (required)
+//   "ip": "10.0.0.2/24",              // TUN IPv4 address (default: 10.0.0.2/24)
+//   "ipv6": "fd00::2/64",             // TUN IPv6 address (optional)
+//   "seed": "aabbccdd...64hex",       // 64-char hex seed for authenticated mode
+//   "seedFile": "/etc/nospoon/seed",  // or read seed from file (mutually exclusive with "seed")
+//   "mtu": 1400,                      // MTU size, 576–65535 (default: 1400)
+//   "fullTunnel": true                // route all traffic through the VPN
+// }

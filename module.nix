@@ -10,52 +10,27 @@ let
 
   defaultIp = if isServer then "10.0.0.1/24" else "10.0.0.2/24";
 
-  seedFilePath = if cfg.seedFile != null then cfg.seedFile 
+  seedFilePath = if cfg.seedFile != null then cfg.seedFile
                   else if isServer then "${cfg.dataDir}/seed"
                   else null;
 
-  peersJson = lib.optionalString (cfg.peers != { }) (builtins.toJSON { peers = cfg.peers; });
+  generatedConfig = builtins.toJSON ({
+    mode = cfg.mode;
+    ip = cfg.ip;
+    mtu = cfg.mtu;
+    fullTunnel = cfg.fullTunnel;
+  }
+  // lib.optionalAttrs (cfg.ipv6 != null) { ipv6 = cfg.ipv6; }
+  // lib.optionalAttrs (seedFilePath != null) { seedFile = seedFilePath; }
+  // lib.optionalAttrs isClient { server = cfg.serverAddress; }
+  // lib.optionalAttrs (cfg.outInterface != null) { outInterface = cfg.outInterface; }
+  // lib.optionalAttrs (cfg.peers != { }) { peers = cfg.peers; }
+  );
 
-  peersFileContent = pkgs.writeText "peers.json" peersJson;
+  generatedConfigFile = pkgs.writeText "nospoon-config.json" generatedConfig;
 
-  modeAndKey = if isClient then [cfg.serverAddress] else [];
-
-  baseFlags = modeAndKey
-    ++ ["--ip" cfg.ip]
-    ++ lib.optionals (cfg.ipv6 != null) ["--ipv6" cfg.ipv6]
-    ++ lib.optionals (cfg.peersFile != null) ["--config" cfg.peersFile]
-    ++ lib.optionals (cfg.peers != { } && cfg.peersFile == null) ["--config" "${cfg.dataDir}/peers.json"]
-    ++ lib.optionals (cfg.mtu != 1400) ["--mtu" (toString cfg.mtu)]
-    ++ lib.optionals cfg.fullTunnel ["--full-tunnel"]
-    ++ lib.optionals (cfg.outInterface != null) ["--out-interface" cfg.outInterface]
-  ;
-
-  nospoonWrapper = pkgs.writeScriptBin "nospoon-wrapper" ''
-    #!${pkgs.bash}/bin/bash
-    set -e
-
-    MODE="$1"
-    shift
-
-    ${lib.optionalString (seedFilePath != null) ''
-    if [ -f "${seedFilePath}" ]; then
-      SEED=$(cat "${seedFilePath}")
-      set -- "$@" --seed "$SEED"
-    fi
-    ''}
-
-    # Capture public key from output and write to file
-    ${cfg.package}/bin/nospoon "$MODE" "$@" 2>&1 | while IFS= read -r line; do
-      echo "$line"
-      case "$line" in
-        *"Public key:"*)
-          echo "$line" | sed 's/.*Public key:[[:space:]]*//' > "${cfg.dataDir}/public-key"
-          ;;
-      esac
-    done
-  '';
-
-  execFlags = lib.concatStringsSep " " baseFlags;
+  configFilePath = if cfg.configFile != null then cfg.configFile
+                   else generatedConfigFile;
 
 in {
   options.services.nospoon = {
@@ -65,6 +40,16 @@ in {
       type = lib.types.package;
       default = self.packages.${pkgs.system}.nospoon;
       description = "The nospoon package to use";
+    };
+
+    configFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = ''
+        Path to a user-managed nospoon config file (JSONC format).
+        When set, all other nospoon options except 'package' are ignored.
+        Use this to keep secrets (seed) out of the Nix store.
+      '';
     };
 
     mode = lib.mkOption {
@@ -96,9 +81,7 @@ in {
       default = null;
       description = ''
         Path to file containing 64-char hex seed for deterministic key.
-        If null, defaults to <literal>${cfg.dataDir}/seed</literal> and will be generated on first boot.
-        For server: generates persistent server key.
-        For client: use for authenticated mode.
+        If null and mode is server, defaults to dataDir/seed (auto-generated on first boot).
       '';
     };
 
@@ -128,7 +111,7 @@ in {
       default = null;
       description = ''
         Server public key (64-char hex) to connect to.
-        Required for client mode.
+        Required for client mode when configFile is not set.
       '';
     };
 
@@ -141,16 +124,7 @@ in {
       };
       description = ''
         Map of client public keys to IP addresses for authenticated mode.
-        Generates peers.json automatically.
-      '';
-    };
-
-    peersFile = lib.mkOption {
-      type = lib.types.nullOr lib.types.path;
-      default = null;
-      description = ''
-        Path to existing peers.json file.
-        Use this instead of 'peers' if you want to manage the file manually.
+        Embedded directly in the generated config file.
       '';
     };
   };
@@ -158,12 +132,12 @@ in {
   config = lib.mkIf cfg.enable {
     assertions = [
       {
-        assertion = isClient -> cfg.serverAddress != null;
-        message = "services.nospoon.serverAddress is required in client mode";
+        assertion = cfg.configFile != null || !isClient || cfg.serverAddress != null;
+        message = "services.nospoon.serverAddress is required in client mode when configFile is not set";
       }
       {
-        assertion = cfg.peers == { } || cfg.peersFile == null;
-        message = "services.nospoon.peers and services.nospoon.peersFile are mutually exclusive";
+        assertion = cfg.configFile == null || (cfg.peers == { } && cfg.seedFile == null);
+        message = "services.nospoon: configFile is mutually exclusive with peers and seedFile — those options are ignored when configFile is set";
       }
     ];
 
@@ -171,33 +145,31 @@ in {
       "d ${cfg.dataDir} 0755 root root -"
     ];
 
-    system.activationScripts.nospoon-seed = lib.stringAfter ["users"] ''
-      if [ ! -f "${cfg.dataDir}/seed" ]; then
-        ${pkgs.openssl}/bin/openssl rand -hex 32 > "${cfg.dataDir}/seed"
-        chmod 600 "${cfg.dataDir}/seed"
-        echo "nospoon: generated seed file at ${cfg.dataDir}/seed"
-      fi
-    '';
+    system.activationScripts.nospoon-seed = lib.mkIf (cfg.configFile == null && isServer) (
+      lib.stringAfter ["users"] ''
+        if [ ! -f "${cfg.dataDir}/seed" ]; then
+          ${pkgs.openssl}/bin/openssl rand -hex 32 > "${cfg.dataDir}/seed"
+          chmod 600 "${cfg.dataDir}/seed"
+          echo "nospoon: generated seed file at ${cfg.dataDir}/seed"
+        fi
+      ''
+    );
 
     systemd.services.nospoon = {
       description = "nospoon P2P VPN (${cfg.mode})";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
 
-      path = [ pkgs.iptables pkgs.iproute2 pkgs.procps pkgs.bash ];
+      path = [ pkgs.iptables pkgs.iproute2 pkgs.procps ];
 
       serviceConfig = {
         Type = "simple";
         User = "root";
         Group = "root";
         WorkingDirectory = cfg.dataDir;
-        ExecStartPre = lib.optionalString (cfg.peers != { }) ''
-          ${pkgs.bash}/bin/bash -c 'cp -f ${peersFileContent} ${cfg.dataDir}/peers.json'
-        '';
-        ExecStart = "${nospoonWrapper}/bin/nospoon-wrapper ${cfg.mode} ${execFlags}";
+        ExecStart = "${cfg.package}/bin/nospoon up ${configFilePath}";
         Restart = "on-failure";
         RestartSec = "5s";
-        # Runs as root — no capability restrictions needed
       };
     };
   };
