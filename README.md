@@ -10,7 +10,18 @@ A peer-to-peer VPN that **eliminates the need for a publicly reachable server**.
 sudo npm install -g nospoon
 ```
 
-Requires Linux or macOS and Node.js 18+. Root needed for TUN device creation.
+Requires Linux or macOS and Node.js 18+. Root/admin needed for TUN device creation.
+
+### Docker (Linux only)
+
+```bash
+docker build -t nospoon .
+docker run --network=host --cap-add=NET_ADMIN --device /dev/net/tun \
+  -v /path/to/config.jsonc:/etc/nospoon/config.jsonc \
+  nospoon up
+```
+
+`--network=host` shares the host's network stack — the TUN device and routes are created on the host. Works on any Linux distro. Not supported on macOS (Docker runs in a VM).
 
 ## Use Cases
 
@@ -137,6 +148,7 @@ All traffic is end-to-end encrypted. No data passes through the DHT — it's onl
 | Linux | Stable (x86_64, aarch64) |
 | macOS | Stable (Apple Silicon, Intel) |
 | Android | Stable (Kotlin VpnService + Bare worklet) |
+| Docker | Stable (any Linux distro, `--network=host`) |
 | NixOS | Module: `services.nospoon` |
 
 ## Limitations
