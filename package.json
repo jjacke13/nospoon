@@ -27,11 +27,13 @@
     "lib/full-tunnel.js",
     "lib/full-tunnel-linux.js",
     "lib/full-tunnel-darwin.js",
+    "lib/full-tunnel-windows.js",
     "lib/routing.js",
     "lib/server.js",
     "lib/tun.js",
     "lib/tun-linux.js",
     "lib/tun-darwin.js",
+    "lib/tun-windows.js",
     "lib/validation.js",
     "README.md",
     "LICENSE"

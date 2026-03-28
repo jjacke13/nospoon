@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const path = require('path')
+const { execFileSync } = require('child_process')
 const { loadConfig } = require('../lib/config')
 const { startServer } = require('../lib/server')
 const { startClient } = require('../lib/client')
@@ -57,7 +59,21 @@ async function main () {
   }
 
   if (command === 'up') {
-    const configPath = args[1] || '/etc/nospoon/config.jsonc'
+    // Windows: require Administrator privileges for TUN/route operations
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('net', ['session'], { stdio: 'ignore' })
+      } catch {
+        console.error('Error: nospoon requires Administrator privileges on Windows')
+        console.error('Right-click your terminal and select "Run as Administrator"')
+        process.exit(1)
+      }
+    }
+
+    const defaultConfig = process.platform === 'win32'
+      ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'nospoon', 'config.jsonc')
+      : '/etc/nospoon/config.jsonc'
+    const configPath = args[1] || defaultConfig
     const config = loadConfig(configPath)
 
     if (config.mode === 'server') {

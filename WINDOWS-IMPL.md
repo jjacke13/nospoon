@@ -3,6 +3,10 @@
 Prerequisites: config-file changes must be committed on main and rebased into this branch
 before implementation begins. All code below assumes the new `nospoon up [config]` API.
 
+> **Review status:** Updated after expert review (2026-03-28). Fixes applied for:
+> GetLastError checks, receive loop batch limit, Windows signal handling,
+> async shutdown, PowerShell consolidation, targeted NRPT cleanup, safe buffer copy.
+
 ---
 
 ## Step 1: Add wintun.dll to the repo
@@ -50,11 +54,13 @@ const path = require('path')
 const koffi = require('koffi')
 
 // --- Load wintun.dll ---
-const arch = process.arch === 'x64' ? 'x64' : 'arm64'
+const ARCH_MAP = { x64: 'x64', arm64: 'arm64', ia32: 'x86' }
+const arch = ARCH_MAP[process.arch]
+if (!arch) throw new Error(`Unsupported architecture: ${process.arch}`)
 const dllPath = path.join(__dirname, '..', 'bin', `win32-${arch}`, 'wintun.dll')
 const wintun = koffi.load(dllPath)
 
-// Also need kernel32 for WaitForSingleObject
+// Also need kernel32 for WaitForSingleObject and GetLastError
 const kernel32 = koffi.load('kernel32.dll')
 
 // --- Opaque handle types ---
@@ -93,14 +99,23 @@ const WintunSendPacket = wintun.func(
   'void __stdcall WintunSendPacket(WINTUN_SESSION *Session, void *Packet)'
 )
 
-// kernel32 for async wait
+// kernel32 for async wait and error checking
 const WaitForSingleObject = kernel32.func(
   'uint32_t __stdcall WaitForSingleObject(void *hHandle, uint32_t dwMilliseconds)'
 )
+const GetLastError = kernel32.func('uint32_t __stdcall GetLastError()')
 
 const ADAPTER_NAME = 'Nospoon'
 const TUNNEL_TYPE = 'Nospoon Tunnel'
 const SESSION_CAPACITY = 0x400000  // 4 MiB ring buffer
+const RECEIVE_BATCH_LIMIT = 64     // yield to event loop after this many packets
+const ERROR_NO_MORE_ITEMS = 259
+const ERROR_HANDLE_EOF = 38
+
+// Wintun driver version (for diagnostics)
+const WintunGetRunningDriverVersion = wintun.func(
+  'uint32_t __stdcall WintunGetRunningDriverVersion()'
+)
 
 function createTunDevice ({ ipv4, ipv6, mtu = 1400 }) {
   // Clean up stale adapter from a previous crash
@@ -110,6 +125,14 @@ function createTunDevice ({ ipv4, ipv6, mtu = 1400 }) {
   // Create adapter
   const adapter = WintunCreateAdapter(ADAPTER_NAME, TUNNEL_TYPE, null)
   if (!adapter) throw new Error('Failed to create Wintun adapter (requires Administrator)')
+
+  // Log wintun driver version for diagnostics
+  const driverVer = WintunGetRunningDriverVersion()
+  if (driverVer) {
+    const major = (driverVer >> 16) & 0xffff
+    const minor = driverVer & 0xffff
+    console.log(`Wintun driver v${major}.${minor}`)
+  }
 
   // Configure IP via netsh
   const ipAddr = ipv4.split('/')[0]
@@ -158,24 +181,40 @@ function createTunDevice ({ ipv4, ipv6, mtu = 1400 }) {
   // --- Async receive loop ---
   // WintunReceivePacket is non-blocking. When empty, use
   // WaitForSingleObject.async() to wait without blocking the event loop.
+  // Batch limit prevents event loop starvation under packet floods.
   function receiveLoop () {
     if (released) return
 
-    // Drain all available packets
-    while (true) {
+    let count = 0
+    while (count < RECEIVE_BATCH_LIMIT) {
       const sizeOut = [0]
       const packetPtr = WintunReceivePacket(session, sizeOut)
-      if (!packetPtr) break
+      if (!packetPtr) {
+        const err = GetLastError()
+        if (err === ERROR_HANDLE_EOF) {
+          tun.emit('error', new Error('Wintun session terminated by driver'))
+          return
+        }
+        // ERROR_NO_MORE_ITEMS — no packets available, go wait
+        break
+      }
 
       const ab = koffi.view(packetPtr, sizeOut[0])
       const packet = Buffer.from(ab)  // copy out of ring buffer
       WintunReleaseReceivePacket(session, packetPtr)
       tun.emit('data', packet)
+      count++
     }
 
     if (released) return
 
-    // No more packets — wait asynchronously
+    // If we hit batch limit, yield then continue draining
+    if (count === RECEIVE_BATCH_LIMIT) {
+      setImmediate(receiveLoop)
+      return
+    }
+
+    // No more packets — wait asynchronously on worker thread
     WaitForSingleObject.async(readEvent, 1000, function () {
       receiveLoop()
     })
@@ -188,9 +227,17 @@ function createTunDevice ({ ipv4, ipv6, mtu = 1400 }) {
   tun.write = function (packet) {
     if (released || !packet || packet.length === 0) return false
     const sendPtr = WintunAllocateSendPacket(session, packet.length)
-    if (!sendPtr) return false  // ring full, drop packet
+    if (!sendPtr) {
+      const err = GetLastError()
+      if (err === ERROR_HANDLE_EOF) {
+        tun.emit('error', new Error('Wintun session terminated by driver'))
+      }
+      // ERROR_BUFFER_OVERFLOW → ring full, drop packet (recoverable)
+      return false
+    }
     const ab = koffi.view(sendPtr, packet.length)
-    new Uint8Array(ab).set(packet)
+    // Safe copy: handle Buffer.subarray() with non-zero byteOffset
+    new Uint8Array(ab).set(new Uint8Array(packet.buffer, packet.byteOffset, packet.length))
     WintunSendPacket(session, sendPtr)
     return true
   }
@@ -202,6 +249,13 @@ function createTunDevice ({ ipv4, ipv6, mtu = 1400 }) {
     try { WintunEndSession(session) } catch (e) {}
     try { WintunCloseAdapter(adapter) } catch (e) {}
   }
+
+  // Last-resort cleanup: if process exits without calling release(),
+  // close the adapter so it doesn't persist as a stale interface.
+  // Note: 'exit' handler can only run synchronous code — FFI calls are OK.
+  process.on('exit', function () {
+    tun.release()
+  })
 
   const addrs = ipv6 ? `${ipv4} + ${ipv6}` : ipv4
   console.log(`TUN device ${ADAPTER_NAME} up with ${addrs} (MTU ${mtu})`)
@@ -257,7 +311,7 @@ module.exports = {
 ### Implementation
 
 ```javascript
-const { execFileSync } = require('child_process')
+const { execFileSync, execFile } = require('child_process')
 
 const IFACE_RE = /^[a-zA-Z0-9_\- ]+$/  // Windows names can have spaces
 const TUNNEL_DNS = ['1.1.1.1', '8.8.8.8']
@@ -279,24 +333,36 @@ function run (cmd, args, opts) {
   }
 }
 
+// Fire-and-forget variant for async shutdown (matches Linux pattern)
+function runAsync (cmd, args) {
+  execFile(cmd, args, function () {})
+}
+
+// Runs a PowerShell snippet with -NoProfile for faster startup
+function ps (script, opts) {
+  return run('powershell', ['-NoProfile', '-NoLogo', '-Command', script], opts)
+}
+
+function psAsync (script) {
+  runAsync('powershell', ['-NoProfile', '-NoLogo', '-Command', script])
+}
+
 // --- Default gateway detection ---
-// Uses PowerShell Get-NetRoute (most reliable on Windows)
+// Single PowerShell call returns both gateway IP and interface index
 function getDefaultGateway () {
-  const gw = run('powershell', ['-Command',
-    "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object -First 1).NextHop"
-  ])
-  const idx = run('powershell', ['-Command',
-    "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object -First 1).InterfaceIndex"
-  ])
-  if (!gw || !idx) return null
-  return { gateway: gw, ifIndex: idx.trim() }
+  const out = ps(
+    "$r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object -First 1; " +
+    "\"$($r.NextHop)|$($r.InterfaceIndex)\""
+  )
+  if (!out) return null
+  const parts = out.split('|')
+  if (parts.length < 2 || !parts[0] || !parts[1]) return null
+  return { gateway: parts[0], ifIndex: parts[1].trim() }
 }
 
 // Get TUN adapter interface index
 function getTunIfIndex (tunName) {
-  return run('powershell', ['-Command',
-    `(Get-NetAdapter -Name '${tunName}').ifIndex`
-  ])
+  return ps(`(Get-NetAdapter -Name '${tunName}').ifIndex`)
 }
 
 // =======================================================================
@@ -320,9 +386,7 @@ function enableServerForwarding (outInterface, subnet, tunName) {
 
   // Create NAT
   // NOTE: only ONE New-NetNat allowed per host. May conflict with Docker/Hyper-V.
-  run('powershell', ['-Command',
-    `New-NetNat -Name 'NospoonNAT' -InternalIPInterfaceAddressPrefix '${source}'`
-  ], strict)
+  ps(`New-NetNat -Name 'NospoonNAT' -InternalIPInterfaceAddressPrefix '${source}'`, strict)
 
   console.log('NAT enabled (experimental on Windows — Linux recommended for server)')
 
@@ -333,7 +397,7 @@ function disableServerForwarding (natState) {
   if (!natState) return
   console.log('Removing NAT rules...')
 
-  run('powershell', ['-Command', "Remove-NetNat -Name 'NospoonNAT' -Confirm:$false"])
+  ps("Remove-NetNat -Name 'NospoonNAT' -Confirm:$false")
   run('netsh', ['interface', 'ipv4', 'set', 'interface', natState.tun, 'forwarding=disabled'])
   if (natState.outInterface) {
     run('netsh', ['interface', 'ipv4', 'set', 'interface', natState.outInterface, 'forwarding=disabled'])
@@ -348,6 +412,7 @@ let savedTunName = null
 let savedRemoteHosts = []
 let savedGateway = null
 let savedTunIfIndex = null
+let savedNrptRuleName = null
 
 function enableClientFullTunnel (remoteHost, tunName) {
   if (!remoteHost || typeof remoteHost !== 'string') {
@@ -384,9 +449,10 @@ function enableClientFullTunnel (remoteHost, tunName) {
     '0.0.0.0', 'metric', '1', 'if', savedTunIfIndex], strict)
 
   // DNS: use NRPT to force all DNS through VPN DNS (prevents DNS leak)
-  run('powershell', ['-Command',
-    `Add-DnsClientNrptRule -Namespace '.' -NameServers '${TUNNEL_DNS.join("','")}'`
-  ])
+  // Save rule name for targeted removal (avoids wiping unrelated NRPT rules)
+  savedNrptRuleName = ps(
+    `(Add-DnsClientNrptRule -Namespace '.' -NameServers '${TUNNEL_DNS.join("','")}' -PassThru).Name`
+  )
   run('ipconfig', ['/flushdns'])
   console.log(`DNS set to ${TUNNEL_DNS.join(', ')} via NRPT`)
 
@@ -403,31 +469,35 @@ function addHostExemption (remoteHost) {
   console.log(`Added host route exemption for ${remoteHost}`)
 }
 
-function disableClientFullTunnel () {
+function disableClientFullTunnel ({ async: useAsync } = {}) {
   console.log('Restoring original routes...')
 
+  const exec = useAsync ? runAsync : run
+  const execPs = useAsync ? psAsync : ps
+
   // Remove split routes
-  run('route', ['delete', '0.0.0.0', 'mask', '128.0.0.0'])
-  run('route', ['delete', '128.0.0.0', 'mask', '128.0.0.0'])
+  exec('route', ['delete', '0.0.0.0', 'mask', '128.0.0.0'])
+  exec('route', ['delete', '128.0.0.0', 'mask', '128.0.0.0'])
 
   // Remove host route exemptions
   if (savedGateway) {
     for (const host of savedRemoteHosts) {
-      run('route', ['delete', host, 'mask', '255.255.255.255'])
+      exec('route', ['delete', host, 'mask', '255.255.255.255'])
     }
   }
 
-  // Restore DNS (remove NRPT rules)
-  run('powershell', ['-Command',
-    "Get-DnsClientNrptRule | Remove-DnsClientNrptRule -Force"
-  ])
-  run('ipconfig', ['/flushdns'])
-  console.log('DNS restored (NRPT rules removed)')
+  // Restore DNS — remove only our NRPT rule (not third-party rules)
+  if (savedNrptRuleName) {
+    execPs(`Remove-DnsClientNrptRule -Name '${savedNrptRuleName}' -Force`)
+  }
+  exec('ipconfig', ['/flushdns'])
+  console.log('DNS restored (NRPT rule removed)')
 
   savedTunName = null
   savedRemoteHosts = []
   savedGateway = null
   savedTunIfIndex = null
+  savedNrptRuleName = null
 }
 
 module.exports = {
@@ -508,9 +578,9 @@ module.exports = {
 
 ---
 
-## Step 5: Admin check in `bin/cli.js`
+## Step 5: CLI updates for Windows (`bin/cli.js`)
 
-Add before `loadConfig()` on Windows:
+### Admin check (add before `loadConfig()` on Windows):
 
 ```javascript
 if (command === 'up' && process.platform === 'win32') {
@@ -525,6 +595,15 @@ if (command === 'up' && process.platform === 'win32') {
 ```
 
 The `net session` command fails if not running as Administrator — standard detection trick.
+
+### Windows-appropriate default config path:
+
+```javascript
+const defaultConfig = process.platform === 'win32'
+  ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'nospoon', 'config.jsonc')
+  : '/etc/nospoon/config.jsonc'
+const configPath = args[1] || defaultConfig
+```
 
 ---
 
@@ -549,22 +628,26 @@ Ensure `bin/win32-*/wintun.dll` is NOT gitignored (it needs to be committed).
 ```
 1. [x] Write WINDOWS.md (research)              ← done
 2. [x] Write WINDOWS-IMPL.md (this plan)        ← done
-3. [ ] Commit config-file changes on main
-4. [ ] Rebase windows-support on main
+3. [x] Commit config-file changes on main        ← done (0.3.0)
+4. [x] Rebase windows-support on main            ← done (on top of 0.3.2)
 5. [ ] Download wintun.dll prebuilts, add to bin/win32-*/
 6. [ ] Create lib/tun-windows.js
 7. [ ] Create lib/full-tunnel-windows.js
 8. [ ] Update lib/tun.js dispatcher
 9. [ ] Update lib/full-tunnel.js dispatcher
-10.[ ] Add admin check in bin/cli.js
-11.[ ] Test on Windows (VM or native):
+10.[ ] Update bin/cli.js (admin check + Windows default config path)
+11.[ ] Add Windows signal handling in client.js/server.js
+       (process.on('exit') for adapter cleanup already in tun-windows.js;
+        verify SIGINT works on Windows Node.js for Ctrl+C)
+12.[ ] Test on Windows (VM or native):
        - Client mode (connect to Linux server)
        - Client full-tunnel mode
        - Server mode (experimental)
        - Cleanup on Ctrl+C
        - Cleanup after crash (stale adapter)
        - DNS leak test (dnsleaktest.com)
-12.[ ] Update README with Windows instructions
+       - Verify stale NRPT rules don't persist
+13.[ ] Update README with Windows instructions
 ```
 
 ---
@@ -578,13 +661,25 @@ Ensure `bin/win32-*/wintun.dll` is NOT gitignored (it needs to be committed).
    Not needed since the split-route approach works differently on Windows.
 
 3. **PowerShell dependency** — `Get-NetRoute`, `Add-DnsClientNrptRule`, `New-NetNat`
-   require PowerShell. Available on all Windows 10/11 systems.
+   require PowerShell. Available on all Windows 10/11 systems. All calls use
+   `-NoProfile -NoLogo` to reduce startup latency.
 
 4. **First-use driver install** — first call to `WintunCreateAdapter` installs the kernel
    driver, which may cause a brief delay and a Windows Security dialog.
 
 5. **Interface names with spaces** — Windows adapter names can contain spaces (unlike
    Linux/macOS). The `validateInterface` regex and all `netsh`/`route` commands handle this.
+
+6. **Crash recovery for routes/DNS** — `process.on('exit')` cleans up the wintun adapter
+   (synchronous FFI), but cannot run `route delete` or PowerShell for NRPT cleanup.
+   Stale routes/NRPT rules may persist after a hard crash. The next `nospoon up` cleans
+   stale adapters but not routes. Consider a `nospoon clean` command for manual recovery.
+
+7. **No Windows Firewall management** — server mode may require manual firewall rules.
+   Client mode typically works without firewall changes (outbound allowed by default).
+
+8. **IPv6 full-tunnel not yet implemented** — split routes only cover IPv4. IPv6 traffic
+   may leak through the default route. This is a cross-platform limitation.
 
 ---
 
