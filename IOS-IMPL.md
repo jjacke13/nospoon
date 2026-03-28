@@ -2,6 +2,11 @@
 
 A plan for porting nospoon to iOS using NEPacketTunnelProvider + Bare runtime (JSC variant).
 
+> **Updated 2026-03-28:** Revised after studying `bare-ios` example app and `bare-kit-swift`
+> source. IPC API is async/await (`read() async`, `write(data:) async`), project uses
+> XcodeGen (`project.yml`), BareKit supports `memoryLimit` configuration. NotificationService
+> extension in bare-ios confirms BareKit-in-extension is a supported pattern.
+
 ---
 
 ## Critical Difference from Android: No Raw TUN fd
@@ -83,6 +88,10 @@ This adds per-packet IPC overhead that Android doesn't have.
 **CRITICAL:** Must use the **JSC variant** of BareKit. The V8 variant (~31MB binary alone)
 would exceed the memory limit. The JSC variant uses the system-provided JavaScriptCore
 framework, keeping the binary at ~2.6MB.
+
+BareKit supports `Worklet.Configuration(memoryLimit:)` — set to 32MB to leave headroom
+for Swift code within the 50MB extension limit. The `bare-ios` NotificationService
+example uses 8MB for a push notification extension.
 
 **Minimum deployment target: iOS 15+** (the 15MB limit on iOS 14 is too tight).
 
@@ -184,18 +193,22 @@ Packet:  0x02 + length(4 bytes BE) + raw IP packet bytes
 
 ## Project Structure
 
+Based on `bare-ios` reference app. Uses XcodeGen (`project.yml`) to generate
+the Xcode project. BareKit is both a prebuilt xcframework AND a Swift Package
+(via `bare-kit-swift` for the Swift wrapper types).
+
 ```
 ios/
-  nospoon.xcodeproj/
+  project.yml                      # XcodeGen project definition
 
   # Main app target
   nospoon/
-    NospoonApp.swift              # SwiftUI entry point
-    ContentView.swift             # Config list + connection status
-    ConfigEditorView.swift        # Config create/edit
-    QRScannerView.swift           # QR scanning for key import
-    VpnConfig.swift               # Config model + persistence
-    VpnManager.swift              # NETunnelProviderManager wrapper
+    NospoonApp.swift               # SwiftUI entry point
+    ContentView.swift              # Config list + connection status
+    ConfigEditorView.swift         # Config create/edit
+    QRScannerView.swift            # QR scanning for key import
+    VpnConfig.swift                # Config model + persistence
+    VpnManager.swift               # NETunnelProviderManager wrapper
     Assets.xcassets/
     Info.plist
     nospoon.entitlements
@@ -203,61 +216,47 @@ ios/
   # Packet Tunnel Extension target (separate process)
   PacketTunnel/
     PacketTunnelProvider.swift     # NEPacketTunnelProvider subclass
-    WorkletBridge.swift            # BareWorklet + BareIPC lifecycle
     Info.plist
     PacketTunnel.entitlements
 
   # Shared between targets
   Shared/
-    Constants.swift                # App Group ID, IPC message types
+    Constants.swift                # App Group ID
 
-  # BareKit framework (JSC variant, from prebuilds)
+  # BareKit (prebuilt xcframework + Swift Package for type bindings)
   Frameworks/
-    BareKit.xcframework/
+    BareKit.xcframework/           # Downloaded via `gh release download`
 
   # Worklet JavaScript
   worklet/
     client.js                      # iOS-adapted worklet (no TUN fd)
     framing.js                     # Copied from android/worklet/
 
-  # Build outputs
+  # Build outputs (generated, gitignored)
   Resources/
     client.bundle                  # Output of bare-pack --preset ios
 
-  # Native addon prebuilds
+  # Native addon prebuilds (generated, referenced in addons.yml)
   addons/
-    addons.yml
+    addons.yml                     # Addon xcframework references for Xcode
     *.xcframework                  # udx-native, sodium-native, etc.
 
   package.json                     # Worklet deps + build scripts
-  build.sh                         # Build script
+  build.sh                         # Build script (download + link + pack + xcodegen)
 ```
 
 ---
 
 ## Step 1: Xcode Project Setup
 
-Create an Xcode project with two targets:
+Uses XcodeGen (same as `bare-ios` reference). Two targets:
 
 1. **nospoon** (iOS App) — SwiftUI, deployment target iOS 15.0
-2. **PacketTunnel** (Network Extension) — type: Packet Tunnel Provider
+2. **PacketTunnel** (Network Extension) — Packet Tunnel Provider
 
-Both targets need these capabilities:
-- Network Extensions (Packet Tunnel)
-- App Groups (`group.com.nospoon.vpn`)
-
-### Entitlements (both targets)
-
-```xml
-<key>com.apple.developer.networking.networkextension</key>
-<array>
-    <string>packet-tunnel-provider</string>
-</array>
-<key>com.apple.security.application-groups</key>
-<array>
-    <string>group.com.nospoon.vpn</string>
-</array>
-```
+Entitlements are defined in `project.yml` (see Step 5):
+- `com.apple.developer.networking.networkextension: [packet-tunnel-provider]`
+- `com.apple.security.application-groups: [group.com.nospoon.vpn]`
 
 ### Apple Developer Portal
 
@@ -265,6 +264,26 @@ Both targets need these capabilities:
 - Enable Network Extension + App Groups on both
 - Generate provisioning profiles for both targets
 - **Note:** App Store VPN distribution requires an **organization** developer account
+
+### BareKit API (from `bare-kit-swift`)
+
+```swift
+// Worklet — start/stop the JS runtime
+let worklet = Worklet(configuration: Worklet.Configuration(
+    memoryLimit: 32 * 1024 * 1024  // 32MB limit for extension
+))
+worklet.start(name: "client", ofType: "bundle")
+worklet.suspend(linger: 0)
+worklet.resume()
+worklet.terminate()
+
+// IPC — async/await, conforms to AsyncSequence
+let ipc = IPC(worklet: worklet)
+try await ipc.write(data: someData)
+let response = try await ipc.read()
+for await data in ipc { ... }  // async iteration
+ipc.close()
+```
 
 ---
 
@@ -432,15 +451,19 @@ Identical copy of `android/worklet/framing.js` — no changes needed.
 
 ## Step 3: PacketTunnelProvider.swift
 
+Based on the real `bare-kit-swift` API: `Worklet` struct with `start(name:ofType:)`,
+`IPC` struct with `read() async -> Data?` and `write(data:) async`, `IPC` conforms
+to `AsyncSequence` so you can `for await data in ipc { ... }`.
+
 ```swift
 import NetworkExtension
 import BareKit
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
 
-    private var worklet: BareWorklet?
-    private var ipc: BareIPC?
-    private var ipcBuffer = Data()
+    private var worklet: Worklet?
+    private var ipc: IPC?
+    private var ipcReadTask: Task<Void, Never>?
     private var startCompletion: ((Error?) -> Void)?
 
     // MARK: - Lifecycle
@@ -459,49 +482,54 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
 
-        // Start Bare worklet (JSC variant)
-        let bundle = Bundle.main.url(forResource: "client", withExtension: "bundle")!
-        worklet = BareWorklet()
-        worklet?.start(bundle)
+        // Start Bare worklet (JSC variant, 32MB limit for extension headroom)
+        worklet = Worklet(configuration: Worklet.Configuration(
+            memoryLimit: 32 * 1024 * 1024
+        ))
+        worklet?.start(name: "client", ofType: "bundle")
 
-        ipc = worklet?.createIPC()
-        ipc?.readable = { [weak self] in
-            self?.readIPC()
-        }
+        ipc = IPC(worklet: worklet!)
+
+        // Start reading IPC messages from worklet
+        startIPCReadLoop()
 
         // Send start message with config
-        sendToWorklet(["type": "start", "config": configJson])
+        Task { await sendToWorklet(["type": "start", "config": configJson]) }
     }
 
     override func stopTunnel(
         with reason: NEProviderStopReason,
         completionHandler: @escaping () -> Void
     ) {
-        sendToWorklet(["type": "stop"])
+        Task {
+            await sendToWorklet(["type": "stop"])
 
-        // Give worklet 2s to clean up, then force terminate
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.cleanup()
+            // Give worklet 2s to clean up, then force terminate
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            cleanup()
             completionHandler()
         }
     }
 
     private func cleanup() {
+        ipcReadTask?.cancel()
+        ipcReadTask = nil
+        ipc?.close()
+        ipc = nil
         worklet?.terminate()
         worklet = nil
-        ipc = nil
     }
 
     // MARK: - Tunnel network settings
 
-    private func configureTunnel(completion: @escaping (Error?) -> Void) {
+    private func configureTunnel() async throws {
         guard let defaults = UserDefaults(suiteName: Constants.appGroup),
               let configJson = defaults.string(forKey: "activeConfig"),
-              let config = try? JSONSerialization.jsonObject(with:
-                  configJson.data(using: .utf8)!) as? [String: Any] else {
-            completion(NSError(domain: "nospoon", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Cannot parse config"]))
-            return
+              let configData = configJson.data(using: .utf8),
+              let config = try? JSONSerialization.jsonObject(with: configData)
+                  as? [String: Any] else {
+            throw NSError(domain: "nospoon", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Cannot parse config"])
         }
 
         let ipStr = (config["ip"] as? String) ?? "10.0.0.2/24"
@@ -530,68 +558,74 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         settings.mtu = NSNumber(value: mtu)
 
-        setTunnelNetworkSettings(settings) { error in
-            completion(error)
-        }
+        try await setTunnelNetworkSettings(settings)
     }
 
-    // MARK: - Packet read loop
+    // MARK: - Packet read loop (TUN → worklet)
 
     private func startPacketReadLoop() {
         packetFlow.readPackets { [weak self] packets, protocols in
             guard let self = self else { return }
-            for (i, packet) in packets.enumerated() {
-                let b64 = packet.base64EncodedString()
-                self.sendToWorklet(["type": "packet", "data": b64])
+            Task {
+                for packet in packets {
+                    let b64 = packet.base64EncodedString()
+                    await self.sendToWorklet(["type": "packet", "data": b64])
+                }
             }
             // Re-register for next batch
             self.startPacketReadLoop()
         }
     }
 
-    // MARK: - IPC
+    // MARK: - IPC (async/await based — from bare-kit-swift)
 
-    private func sendToWorklet(_ msg: [String: Any]) {
+    private func sendToWorklet(_ msg: [String: Any]) async {
         guard let ipc = ipc,
               let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return }
         let line = json + "\n"
-        ipc.write(line.data(using: .utf8)!)
+        try? await ipc.write(data: line.data(using: .utf8)!)
     }
 
-    private func readIPC() {
-        guard let ipc = ipc else { return }
-        while let data = ipc.read() {
-            ipcBuffer.append(data)
-        }
-        // Split on newlines
-        while let range = ipcBuffer.range(of: Data("\n".utf8)) {
-            let line = ipcBuffer.subdata(in: ipcBuffer.startIndex..<range.lowerBound)
-            ipcBuffer.removeSubrange(ipcBuffer.startIndex...range.lowerBound)
+    // IPC conforms to AsyncSequence — iterate with for-await
+    private func startIPCReadLoop() {
+        ipcReadTask = Task { [weak self] in
+            guard let self = self, let ipc = self.ipc else { return }
+            var buffer = Data()
 
-            guard let msg = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                  let type = msg["type"] as? String else { continue }
+            for await data in ipc {
+                buffer.append(data)
 
-            handleWorkletMessage(type, msg)
+                // Split on newlines
+                while let range = buffer.range(of: Data("\n".utf8)) {
+                    let line = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+                    buffer.removeSubrange(buffer.startIndex...range.lowerBound)
+
+                    guard let msg = try? JSONSerialization.jsonObject(with: line)
+                              as? [String: Any],
+                          let type = msg["type"] as? String else { continue }
+
+                    await self.handleWorkletMessage(type, msg)
+                }
+            }
         }
     }
 
-    private func handleWorkletMessage(_ type: String, _ msg: [String: Any]) {
+    private func handleWorkletMessage(_ type: String, _ msg: [String: Any]) async {
         switch type {
         case "ready":
             break // worklet is up, start message already sent
 
         case "connected":
             // DHT connected — configure tunnel and start packet loop
-            configureTunnel { [weak self] error in
-                if let error = error {
-                    self?.startCompletion?(error)
-                } else {
-                    self?.startCompletion?(nil)
-                    self?.startPacketReadLoop()
-                }
-                self?.startCompletion = nil
+            do {
+                try await configureTunnel()
+                startCompletion?(nil)
+                startPacketReadLoop()
+            } catch {
+                startCompletion?(error)
             }
+            startCompletion = nil
 
         case "packet":
             // Inbound packet from server — write to TUN
@@ -599,7 +633,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                let packet = Data(base64Encoded: b64) {
                 let version = packet.first.map { $0 >> 4 } ?? 4
                 let proto = NSNumber(value: version == 6 ? AF_INET6 : AF_INET)
-                self.packetFlow.writePackets([packet], withProtocols: [proto])
+                packetFlow.writePackets([packet], withProtocols: [proto])
             }
 
         case "status":
@@ -680,12 +714,107 @@ class VpnManager: ObservableObject {
 
 ---
 
-## Step 5: Build Script (`ios/build.sh`)
+## Step 5: XcodeGen Project (`ios/project.yml`)
+
+Based on the `bare-ios` example structure. Two targets: app + packet tunnel extension.
+
+```yaml
+name: nospoon
+include:
+  - addons/addons.yml
+packages:
+  BareKit:
+    url: https://github.com/holepunchto/bare-kit-swift
+    branch: main
+targets:
+  nospoon:
+    type: application
+    platform: iOS
+    deploymentTarget: 15.0
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nospoon.vpn
+        SWIFT_VERSION: 5.0
+    info:
+      path: nospoon/Info.plist
+    entitlements:
+      path: nospoon/nospoon.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.nospoon.vpn
+    dependencies:
+      - framework: Frameworks/BareKit.xcframework
+      - package: BareKit
+      - target: PacketTunnel
+    sources:
+      - path: nospoon/
+    scheme:
+      preActions:
+        - name: Link
+          script: |
+            PATH="${PATH}" "${PWD}/node_modules/.bin/bare-link" \
+              --preset ios \
+              --out ${PWD}/addons \
+              ${PWD}
+        - name: Pack
+          script: |
+            PATH="${PATH}" "${PWD}/node_modules/.bin/bare-pack" \
+              --preset ios \
+              --linked \
+              --base ${PWD} \
+              --out ${PWD}/Resources/client.bundle \
+              ${PWD}/worklet/client.js
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: 15.0
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nospoon.vpn.PacketTunnel
+        SWIFT_VERSION: 5.0
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: PacketTunnel.PacketTunnelProvider
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.nospoon.vpn
+    dependencies:
+      - framework: Frameworks/BareKit.xcframework
+      - package: BareKit
+    sources:
+      - path: PacketTunnel/
+      - path: Shared/
+      - path: Resources/client.bundle
+        optional: true
+```
+
+---
+
+## Step 6: Build Script (`ios/build.sh`)
 
 ```bash
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")"
+
+# Download BareKit.xcframework if not present
+if [ ! -d Frameworks/BareKit.xcframework ]; then
+  echo "=== Downloading BareKit prebuilds ==="
+  gh release download --repo holepunchto/bare-kit --pattern 'prebuilds.zip' -D /tmp
+  unzip -o /tmp/prebuilds.zip -d /tmp/bare-prebuilds
+  mkdir -p Frameworks
+  cp -r /tmp/bare-prebuilds/ios/BareKit.xcframework Frameworks/
+  echo "BareKit.xcframework installed"
+fi
 
 echo "=== Installing worklet dependencies ==="
 npm install
@@ -696,7 +825,10 @@ npx bare-link --preset ios --out addons
 echo "=== Packing worklet bundle ==="
 npx bare-pack --preset ios --linked --out Resources/client.bundle worklet/client.js
 
-echo "=== Build complete ==="
+echo "=== Generating Xcode project ==="
+xcodegen generate
+
+echo "=== Done ==="
 echo "Open nospoon.xcodeproj in Xcode to build and run."
 ```
 
