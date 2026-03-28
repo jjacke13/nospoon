@@ -10,7 +10,7 @@
 
 buildNpmPackage rec {
   pname = "nospoon";
-  version = "0.3.1";
+  version = "0.3.2";
 
   src = lib.fileset.toSource {
     root = ./.;
@@ -22,7 +22,7 @@ buildNpmPackage rec {
     ];
   };
 
-  npmDepsHash = "sha256-pIm51kEc2QzF7eQ/Qeq6HG3bDwiocxrEAD0JH4/8BvQ=";
+  npmDepsHash = "";
 
   # koffi ships prebuilds — no native compilation needed
   makeCacheWritable = true;
