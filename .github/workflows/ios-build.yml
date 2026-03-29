@@ -21,8 +21,22 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
+      - name: Cache iOS platform
+        id: cache-ios-platform
+        uses: actions/cache@v4
+        with:
+          path: /Applications/Xcode_16.2.app/Contents/Developer/Platforms/iPhoneOS.platform
+          key: ios-platform-xcode-16.2
+
       - name: Install iOS platform
+        if: steps.cache-ios-platform.outputs.cache-hit != 'true'
         run: xcodebuild -downloadPlatform iOS
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ios/node_modules
+          key: npm-ios-${{ hashFiles('ios/package-lock.json', 'ios/package.json') }}
 
       - name: Install XcodeGen
         run: brew install xcodegen
