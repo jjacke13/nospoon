@@ -1,0 +1,77 @@
+name: nospoon
+include:
+  - addons/addons.yml
+packages:
+  BareKit:
+    url: https://github.com/holepunchto/bare-kit-swift
+    branch: main
+targets:
+  nospoon:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nospoon.vpn
+        SWIFT_VERSION: "5.0"
+    info:
+      path: nospoon/Info.plist
+    entitlements:
+      path: nospoon/nospoon.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.nospoon.vpn
+    dependencies:
+      - framework: Frameworks/BareKit.xcframework
+      - package: BareKit
+      - target: PacketTunnel
+    sources:
+      - path: nospoon/
+      - path: Shared/
+    scheme:
+      preActions:
+        - name: Link
+          script: |
+            PATH="${PATH}" "${PWD}/node_modules/.bin/bare-link" \
+              --preset ios \
+              --out ${PWD}/addons \
+              ${PWD}
+        - name: Pack
+          script: |
+            PATH="${PATH}" "${PWD}/node_modules/.bin/bare-pack" \
+              --preset ios \
+              --linked \
+              --base ${PWD} \
+              --out ${PWD}/Resources/client.bundle \
+              ${PWD}/worklet/client.js
+  PacketTunnel:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nospoon.vpn.PacketTunnel
+        SWIFT_VERSION: "5.0"
+    info:
+      path: PacketTunnel/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: PacketTunnel.PacketTunnelProvider
+    entitlements:
+      path: PacketTunnel/PacketTunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.nospoon.vpn
+    dependencies:
+      - framework: Frameworks/BareKit.xcframework
+      - package: BareKit
+    sources:
+      - path: PacketTunnel/
+      - path: Shared/
+      - path: Resources/client.bundle
+        optional: true

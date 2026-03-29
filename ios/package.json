@@ -1,0 +1,17 @@
+{
+  "name": "nospoon-ios",
+  "version": "0.3.2",
+  "private": true,
+  "description": "nospoon iOS VPN app - Bare worklet dependencies",
+  "scripts": {
+    "link": "bare-link --preset ios --out addons",
+    "pack": "bare-pack --preset ios --linked --out Resources/client.bundle worklet/client.js"
+  },
+  "dependencies": {
+    "hyperdht": "^6.29.1"
+  },
+  "devDependencies": {
+    "bare-link": "latest",
+    "bare-pack": "latest"
+  }
+}
