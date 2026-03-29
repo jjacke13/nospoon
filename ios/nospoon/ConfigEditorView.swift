@@ -16,7 +16,7 @@ struct ConfigEditorView: View {
                     TextField("Name", text: $config.name)
                     TextField("IP Address (e.g. 10.0.0.2/24)", text: $config.ip)
                         .keyboardType(.numbersAndPunctuation)
-                        .autocapitalization(.none)
+                        .textInputAutocapitalization(.never)
                 }
 
                 Section("Server") {

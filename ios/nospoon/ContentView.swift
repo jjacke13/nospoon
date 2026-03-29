@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var configs: [VpnConfig] = []
     @State private var showEditor = false
     @State private var editingConfig: VpnConfig?
+    @State private var activeConfigId: UUID?
 
     var body: some View {
         NavigationView {
@@ -18,9 +19,13 @@ struct ContentView: View {
                     ForEach(configs) { config in
                         ConfigRow(
                             config: config,
-                            isConnected: vpnManager.status == .connected,
+                            isActive: activeConfigId == config.id
+                                && vpnManager.status == .connected,
                             onConnect: { connectWith(config) },
-                            onDisconnect: { vpnManager.disconnect() },
+                            onDisconnect: {
+                                vpnManager.disconnect()
+                                activeConfigId = nil
+                            },
                             onEdit: {
                                 editingConfig = config
                                 showEditor = true
@@ -63,8 +68,10 @@ struct ContentView: View {
 
     private func connectWith(_ config: VpnConfig) {
         do {
+            activeConfigId = config.id
             try vpnManager.connect(config: config.toWorkletConfig())
         } catch {
+            activeConfigId = nil
             NSLog("nospoon connect error: %@", error.localizedDescription)
         }
     }
@@ -113,7 +120,7 @@ struct StatusRow: View {
 
 struct ConfigRow: View {
     let config: VpnConfig
-    let isConnected: Bool
+    let isActive: Bool
     let onConnect: () -> Void
     let onDisconnect: () -> Void
     let onEdit: () -> Void
@@ -135,7 +142,7 @@ struct ConfigRow: View {
             }
             .buttonStyle(.borderless)
 
-            if isConnected {
+            if isActive {
                 Button("Disconnect", action: onDisconnect)
                     .buttonStyle(.borderedProminent)
                     .tint(.red)

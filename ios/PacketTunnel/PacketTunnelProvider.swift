@@ -7,6 +7,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var ipc: IPC?
     private var ipcReadTask: Task<Void, Never>?
     private var startCompletion: ((Error?) -> Void)?
+    private var startTimeoutTask: Task<Void, Never>?
+    private var running = false
 
     // MARK: - Lifecycle
 
@@ -18,7 +20,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         // Read config from App Group shared storage
         guard let defaults = UserDefaults(suiteName: Constants.appGroup),
-              let configJson = defaults.string(forKey: Constants.activeConfigKey) else {
+              let configJson = defaults.string(forKey: Constants.activeConfigKey),
+              let configData = configJson.data(using: .utf8),
+              let configObj = try? JSONSerialization.jsonObject(with: configData)
+                  as? [String: Any] else {
             completionHandler(NSError(domain: "nospoon", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "No config found"]))
             return
@@ -32,18 +37,31 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         worklet?.start(name: "client", ofType: "bundle")
 
         ipc = IPC(worklet: worklet!)
+        running = true
 
         // Start reading IPC messages from worklet
         startIPCReadLoop()
 
-        // Send start message with config
-        Task { await sendToWorklet(["type": "start", "config": configJson]) }
+        // Send start message with parsed config object (not stringified JSON)
+        Task { await sendToWorklet(["type": "start", "config": configObj]) }
+
+        // Timeout: if worklet doesn't connect within 30s, fail
+        startTimeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            if let completion = self.startCompletion {
+                self.startCompletion = nil
+                completion(NSError(domain: "nospoon", code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Connection timeout"]))
+                self.cleanup()
+            }
+        }
     }
 
     override func stopTunnel(
         with reason: NEProviderStopReason,
         completionHandler: @escaping () -> Void
     ) {
+        running = false
         Task {
             await sendToWorklet(["type": "stop"])
 
@@ -55,6 +73,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func cleanup() {
+        running = false
+        startTimeoutTask?.cancel()
+        startTimeoutTask = nil
         ipcReadTask?.cancel()
         ipcReadTask = nil
         ipc?.close()
@@ -78,7 +99,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let ipStr = (config["ip"] as? String) ?? "10.0.0.2/24"
         let parts = ipStr.split(separator: "/")
         let ip = String(parts[0])
-        let prefix = Int(parts[1]) ?? 24
+        let prefix = parts.count >= 2 ? (Int(parts[1]) ?? 24) : 24
         let mtu = (config["mtu"] as? Int) ?? 1400
         let fullTunnel = (config["fullTunnel"] as? Bool) ?? false
 
@@ -107,8 +128,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     // MARK: - Packet read loop (TUN -> worklet)
 
     private func startPacketReadLoop() {
+        guard running else { return }
         packetFlow.readPackets { [weak self] packets, protocols in
-            guard let self = self else { return }
+            guard let self = self, self.running else { return }
             Task {
                 for packet in packets {
                     let b64 = packet.base64EncodedString()
@@ -127,7 +149,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
               let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return }
         let line = json + "\n"
-        try? await ipc.write(data: line.data(using: .utf8)!)
+        do {
+            try await ipc.write(data: line.data(using: .utf8)!)
+        } catch {
+            NSLog("nospoon IPC write failed: %@", error.localizedDescription)
+        }
     }
 
     // IPC conforms to AsyncSequence — iterate with for-await
@@ -161,14 +187,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         case "connected":
             // DHT connected — configure tunnel and start packet loop
-            do {
-                try await configureTunnel()
-                startCompletion?(nil)
-                startPacketReadLoop()
-            } catch {
-                startCompletion?(error)
+            // Guard: only call startCompletion once (ignore reconnect "connected" messages)
+            guard let completion = startCompletion else {
+                // Reconnection — tunnel already configured
+                return
             }
             startCompletion = nil
+            startTimeoutTask?.cancel()
+            startTimeoutTask = nil
+
+            do {
+                try await configureTunnel()
+                completion(nil)
+                startPacketReadLoop()
+            } catch {
+                completion(error)
+                cleanup()
+            }
 
         case "packet":
             // Inbound packet from server — write to TUN
@@ -199,7 +234,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 }
 
-func prefixToNetmask(_ prefix: Int) -> String {
-    let mask: UInt32 = prefix == 0 ? 0 : (~UInt32(0)) << (32 - prefix)
+private func prefixToNetmask(_ prefix: Int) -> String {
+    let clamped = min(max(prefix, 0), 32)
+    let mask: UInt32 = clamped == 0 ? 0 : (~UInt32(0)) << (32 - clamped)
     return "\(mask >> 24 & 0xff).\(mask >> 16 & 0xff).\(mask >> 8 & 0xff).\(mask & 0xff)"
 }

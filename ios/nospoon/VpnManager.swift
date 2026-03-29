@@ -7,15 +7,20 @@ class VpnManager: ObservableObject {
 
     func load() async throws {
         let managers = try await NETunnelProviderManager.loadAllFromPreferences()
-        manager = managers.first ?? NETunnelProviderManager()
+        let existing = managers.first
 
-        let proto = NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = Constants.bundleIdTunnel
-        proto.serverAddress = "HyperDHT" // display only
-        manager?.protocolConfiguration = proto
-        manager?.isEnabled = true
-
-        try await manager?.saveToPreferences()
+        if let existing = existing {
+            manager = existing
+        } else {
+            let fresh = NETunnelProviderManager()
+            let proto = NETunnelProviderProtocol()
+            proto.providerBundleIdentifier = Constants.bundleIdTunnel
+            proto.serverAddress = "HyperDHT" // display only
+            fresh.protocolConfiguration = proto
+            fresh.isEnabled = true
+            try await fresh.saveToPreferences()
+            manager = fresh
+        }
 
         // Observe status changes
         observer = NotificationCenter.default.addObserver(

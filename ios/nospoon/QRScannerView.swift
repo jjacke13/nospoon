@@ -19,6 +19,7 @@ struct QRScannerView: UIViewControllerRepresentable {
     class ScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
         var onScan: ((String) -> Void)?
         private var captureSession: AVCaptureSession?
+        private var previewLayer: AVCaptureVideoPreviewLayer?
 
         override func viewDidLoad() {
             super.viewDidLoad()
@@ -49,9 +50,17 @@ struct QRScannerView: UIViewControllerRepresentable {
             preview.frame = view.layer.bounds
             preview.videoGravity = .resizeAspectFill
             view.layer.addSublayer(preview)
+            self.previewLayer = preview
 
             captureSession = session
-            session.startRunning()
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.startRunning()
+            }
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            previewLayer?.frame = view.layer.bounds
         }
 
         override func viewWillDisappear(_ animated: Bool) {
