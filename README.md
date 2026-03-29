@@ -10,7 +10,7 @@ A peer-to-peer VPN that **eliminates the need for a publicly reachable server**.
 sudo npm install -g nospoon
 ```
 
-Requires Linux or macOS and Node.js 18+. Root/admin needed for TUN device creation.
+Requires Node.js 18+. Root/admin needed for TUN device creation.
 
 ### Docker (Linux only)
 
@@ -147,9 +147,23 @@ All traffic is end-to-end encrypted. No data passes through the DHT — it's onl
 |----------|--------|
 | Linux | Stable (x86_64, aarch64) |
 | macOS | Stable (Apple Silicon, Intel) |
+| Windows | Stable (x64, arm64) — via [Wintun](https://www.wintun.net) |
 | Android | Stable (Kotlin VpnService + Bare worklet) |
 | Docker | Stable (any Linux distro, `--network=host`) |
 | NixOS | Module: `services.nospoon` |
+
+## Windows
+
+Requires an **Administrator** terminal. nospoon uses [Wintun](https://www.wintun.net) v0.14.1 (bundled) to create the TUN adapter — no separate driver install needed.
+
+```powershell
+# Run as Administrator
+nospoon up config.jsonc
+```
+
+Default config path: `%PROGRAMDATA%\nospoon\config.jsonc`
+
+Full-tunnel mode works (IPv4 + IPv6 leak prevention). The Wintun prebuilt DLLs are distributed under a [permissive license](bin/win32-x64/LICENSE.txt) by WireGuard LLC.
 
 ## Limitations
 
@@ -164,5 +178,6 @@ GPL-3.0 — See [LICENSE](LICENSE)
 
 - [HyperDHT](https://github.com/holepunchto/hyperdht) — DHT and hole-punching
 - [koffi](https://koffi.dev/) — FFI for TUN device creation
+- [Wintun](https://www.wintun.net) — Windows TUN driver by WireGuard LLC
 - [Noise Protocol](https://noiseprotocol.org/) — Encryption framework
 - [HoleSail](https://holesail.io/) — The original Layer 4 project
