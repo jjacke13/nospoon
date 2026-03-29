@@ -1,0 +1,61 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ios-support]
+  pull_request:
+    branches: [ios-support]
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ios-support
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download BareKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download --repo holepunchto/bare-kit --pattern 'prebuilds.zip' -D /tmp
+          unzip -o /tmp/prebuilds.zip -d /tmp/bare-prebuilds
+          mkdir -p Frameworks
+          cp -r /tmp/bare-prebuilds/ios/BareKit.xcframework Frameworks/
+
+      - name: Install worklet dependencies
+        run: npm install
+
+      - name: Link native addons
+        run: npx bare-link --preset ios --out addons
+
+      - name: Pack worklet bundle
+        run: npx bare-pack --preset ios --linked --out Resources/client.bundle worklet/client.js
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (no signing)
+        run: |
+          xcodebuild build \
+            -project nospoon.xcodeproj \
+            -scheme nospoon \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="-"
