@@ -162,20 +162,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             guard let self = self, let ipc = self.ipc else { return }
             var buffer = Data()
 
-            for await data in ipc {
-                buffer.append(data)
+            do {
+                for try await data in ipc {
+                    buffer.append(data)
 
-                // Split on newlines
-                while let range = buffer.range(of: Data("\n".utf8)) {
-                    let line = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
-                    buffer.removeSubrange(buffer.startIndex...range.lowerBound)
+                    // Split on newlines
+                    while let range = buffer.range(of: Data("\n".utf8)) {
+                        let line = buffer.subdata(in: buffer.startIndex..<range.lowerBound)
+                        buffer.removeSubrange(buffer.startIndex...range.lowerBound)
 
-                    guard let msg = try? JSONSerialization.jsonObject(with: line)
-                              as? [String: Any],
-                          let type = msg["type"] as? String else { continue }
+                        guard let msg = try? JSONSerialization.jsonObject(with: line)
+                                  as? [String: Any],
+                              let type = msg["type"] as? String else { continue }
 
-                    await self.handleWorkletMessage(type, msg)
+                        await self.handleWorkletMessage(type, msg)
+                    }
                 }
+            } catch {
+                NSLog("nospoon IPC read error: %@", error.localizedDescription)
             }
         }
     }
