@@ -29,7 +29,6 @@ jobs:
           key: ios-platform-xcode-16.2
 
       - name: Install iOS platform
-        if: steps.cache-ios-platform.outputs.cache-hit != 'true'
         run: xcodebuild -downloadPlatform iOS
 
       - name: Cache npm dependencies
