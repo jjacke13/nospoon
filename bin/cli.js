@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-const path = require('path')
-const { execFileSync } = require('child_process')
+const { path, childProcess, platform, argv, env, exit, randomBytes } = require('../lib/compat')
+const { execFileSync } = childProcess
 const { loadConfig } = require('../lib/config')
 const { startServer } = require('../lib/server')
 const { startClient } = require('../lib/client')
 
-const args = process.argv.slice(2)
+const args = argv.slice(2)
 const command = args[0]
 
 function printUsage () {
@@ -45,33 +45,32 @@ Config file format (JSONC):
 async function main () {
   if (!command || command === '--help' || command === '-h') {
     printUsage()
-    process.exit(0)
+    exit(0)
   }
 
   if (command === 'genkey') {
-    const crypto = require('crypto')
     const HyperDHT = require('hyperdht')
-    const seed = crypto.randomBytes(32)
+    const seed = randomBytes(32)
     const keyPair = HyperDHT.keyPair(seed)
     console.log('Seed (keep secret):  ', seed.toString('hex'))
     console.log('Public key (share):  ', keyPair.publicKey.toString('hex'))
-    process.exit(0)
+    exit(0)
   }
 
   if (command === 'up') {
     // Windows: require Administrator privileges for TUN/route operations
-    if (process.platform === 'win32') {
+    if (platform === 'win32') {
       try {
         execFileSync('net', ['session'], { stdio: 'ignore' })
       } catch {
         console.error('Error: nospoon requires Administrator privileges on Windows')
         console.error('Right-click your terminal and select "Run as Administrator"')
-        process.exit(1)
+        exit(1)
       }
     }
 
-    const defaultConfig = process.platform === 'win32'
-      ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'nospoon', 'config.jsonc')
+    const defaultConfig = platform === 'win32'
+      ? path.join(env.PROGRAMDATA || 'C:\\ProgramData', 'nospoon', 'config.jsonc')
       : '/etc/nospoon/config.jsonc'
     const configPath = args[1] || defaultConfig
     const config = loadConfig(configPath)
@@ -84,11 +83,11 @@ async function main () {
   } else {
     console.error(`Unknown command: ${command}`)
     printUsage()
-    process.exit(1)
+    exit(1)
   }
 }
 
 main().catch(function (err) {
   console.error('Fatal:', err.message)
-  process.exit(1)
+  exit(1)
 })

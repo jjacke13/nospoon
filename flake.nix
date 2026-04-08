@@ -24,8 +24,14 @@
       });
 
       devShells = nixpkgs.lib.genAttrs
-        [ "x86_64-linux" "x86_64-darwin" "aarch64-darwin" ]
-        (system: {
+        [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]
+        (system: let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in {
+          default = pkgs.mkShell {
+            packages = with pkgs; [ cmake gcc nodejs_22 ];
+          };
+
           android = import ./android/shell.nix {
             pkgs = import nixpkgs {
               inherit system;

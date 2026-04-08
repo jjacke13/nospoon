@@ -27,7 +27,14 @@
   ],
   "type": "commonjs",
   "dependencies": {
+    "b4a": "^1.8.0",
     "hyperdht": "^6.29.1",
-    "koffi": "^2.15.2"
-  }
+    "require-addon": "^1.2.0"
+  },
+  "devDependencies": {
+    "bare-compat-napi": "^1.3.9",
+    "cmake-bare": "^1.6.1",
+    "cmake-napi": "^1.2.2"
+  },
+  "addon": true
 }
