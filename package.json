@@ -22,6 +22,7 @@
   "files": [
     "bin/",
     "lib/",
+    "prebuilds/",
     "README.md",
     "LICENSE"
   ],

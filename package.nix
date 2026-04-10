@@ -17,14 +17,16 @@ buildNpmPackage rec {
     fileset = lib.fileset.unions [
       ./bin
       ./lib
+      ./prebuilds
       ./package.json
       ./package-lock.json
     ];
   };
 
-  npmDepsHash = "sha256-wM/ZWhUgvCE+UK/pDmCZDrQQeVeC3Z9OQImgWtYIEw4=";
+  npmDepsHash = "sha256-8XOZ7UZhkJQ68s+OYb1Me2+BTXePg6Hnfh1gAYBvciU=";
 
-  # koffi ships prebuilds — no native compilation needed
+  # require-addon auto-loads the correct prebuilt .node from prebuilds/
+  # based on detected platform + arch at runtime — no native build needed
   makeCacheWritable = true;
   dontNpmBuild = true;
 
