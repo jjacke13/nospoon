@@ -10,7 +10,7 @@ A peer-to-peer VPN that **eliminates the need for a publicly reachable server**.
 sudo npm install -g nospoon
 ```
 
-Requires Node.js 18+. Root/admin needed for TUN device creation.
+Requires Node.js 18+ or [Bare](https://github.com/holepunchto/bare) 1.16+. Root/admin needed for TUN device creation. Prebuilt native addons are shipped for Linux x64/arm64, macOS, and Windows — no compiler needed.
 
 ### Docker (Linux only)
 
@@ -152,6 +152,15 @@ All traffic is end-to-end encrypted. No data passes through the DHT — it's onl
 | Docker | Stable (any Linux distro, `--network=host`) |
 | NixOS | Module: `services.nospoon` |
 
+### Runtime support
+
+nospoon runs on two JavaScript runtimes:
+
+- **Node.js** — the traditional path, works everywhere Node.js works
+- **[Bare](https://github.com/holepunchto/bare)** — a minimal V8 runtime by Holepunch, ~10 MB standalone binary, enables single-file distribution via [bare-pack](https://github.com/holepunchto/bare-pack)
+
+Both runtimes share the same codebase. A tiny native C addon (~16 KB) handles the platform-specific TUN device creation — the same source compiles to both `.node` (Node.js N-API) and `.bare` (Bare) via [cmake-bare](https://github.com/holepunchto/cmake-bare) and [cmake-napi](https://github.com/holepunchto/cmake-napi).
+
 ## Windows
 
 Requires an **Administrator** terminal. nospoon uses [Wintun](https://www.wintun.net) v0.14.1 (bundled) to create the TUN adapter — no separate driver install needed.
@@ -165,6 +174,38 @@ Default config path: `%PROGRAMDATA%\nospoon\config.jsonc`
 
 Full-tunnel mode works (IPv4 + IPv6 leak prevention). The Wintun prebuilt DLLs are distributed under a [permissive license](bin/win32-x64/LICENSE.txt) by WireGuard LLC.
 
+## Size & Comparison
+
+nospoon's goal is to stay minimal — small codebase, few dependencies, runs anywhere JavaScript runs.
+
+### Size
+
+| Component | Size |
+|---|---|
+| Source code (`lib/`) | ~680 lines of JavaScript |
+| Native addon (`native/`) | ~450 lines of C |
+| Runtime dependencies | 3 (b4a, hyperdht, require-addon) |
+| Prebuilt addon binary | 16 KB per platform |
+| Runtime (Node.js) | ~50-80 MB installed |
+| Runtime ([Bare](https://github.com/holepunchto/bare)) | ~10 MB standalone binary |
+
+### Comparison with other VPNs
+
+| | Binary size | Kernel module | System deps | Source lines |
+|---|---|---|---|---|
+| **WireGuard** | ~500 KB | yes (required) | none | ~4,000 (kernel) |
+| **OpenVPN** | ~1-2 MB | no | OpenSSL | ~100,000+ |
+| **Tailscale** | ~30-40 MB | no | none (Go static) | ~500,000 |
+| **nospoon** (Bare) | ~10 MB + 16 KB | no | none | ~1,100 |
+
+nospoon is **not the smallest** — WireGuard wins that comparison by far. What nospoon trades size for:
+
+- **No kernel module** — runs entirely in userspace, no root on kernel features
+- **No port forwarding** — HyperDHT hole-punches through NATs (no public IP needed)
+- **No central infrastructure** — no coordination server, no account system
+- **Readable codebase** — the entire VPN logic fits in ~1,100 lines
+- **Runs everywhere** — desktop, mobile (Android/iOS), embedded Linux, single binary with Bare
+
 ## Limitations
 
 - **Symmetric NAT** — both peers behind symmetric NAT may fail to connect
@@ -177,7 +218,7 @@ GPL-3.0 — See [LICENSE](LICENSE)
 ## Credits
 
 - [HyperDHT](https://github.com/holepunchto/hyperdht) — DHT and hole-punching
-- [koffi](https://koffi.dev/) — FFI for TUN device creation
+- [Bare](https://github.com/holepunchto/bare) — Lightweight JavaScript runtime
 - [Wintun](https://www.wintun.net) — Windows TUN driver by WireGuard LLC
 - [Noise Protocol](https://noiseprotocol.org/) — Encryption framework
 - [HoleSail](https://holesail.io/) — The original Layer 4 project
