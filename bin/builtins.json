@@ -18,5 +18,10 @@
   "net",
   "url",
   "stream",
-  "util"
+  "util",
+  "bare-fs",
+  "bare-path",
+  "bare-os",
+  "bare-events",
+  "bare-subprocess"
 ]
