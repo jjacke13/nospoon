@@ -17,8 +17,9 @@ jobs:
             target: linux-x64
           - os: ubuntu-24.04-arm
             target: linux-arm64
-          - os: macos-13
+          - os: macos-14
             target: darwin-x64
+            arch: x86_64
           - os: macos-14
             target: darwin-arm64
           - os: windows-latest
@@ -43,7 +44,11 @@ jobs:
         working-directory: native
         shell: bash
         run: |
-          cmake -B build -DCMAKE_PREFIX_PATH="$(cd ../node_modules && pwd)"
+          CMAKE_ARGS="-DCMAKE_PREFIX_PATH=$(cd ../node_modules && pwd)"
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=x86_64"
+          fi
+          cmake -B build $CMAKE_ARGS
           cmake --build build --config Release
 
       - name: Collect prebuilds
@@ -60,11 +65,7 @@ jobs:
           find native/build -name "*.bare" -exec cp {} prebuilds/${{ matrix.target }}/nospoon-tun.bare \;
 
       - name: Verify addon loads
-        if: runner.os != 'Windows'
-        run: node -e "const b = require('./lib/binding'); console.log('OK:', Object.keys(b))"
-
-      - name: Verify addon loads (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.arch == ''
         run: node -e "const b = require('./lib/binding'); console.log('OK:', Object.keys(b))"
 
       - name: Upload prebuilds
