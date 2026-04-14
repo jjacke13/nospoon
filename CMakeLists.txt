@@ -10,8 +10,11 @@ project(nospoon C CXX)
 
 bare_target(target)
 
-if(target MATCHES "win32-x64")
-  enable_language(ASM_NASM)
+if(target MATCHES "win32")
+  find_program(NASM_FOUND nasm)
+  if(NASM_FOUND)
+    enable_language(ASM_NASM)
+  endif()
 else()
   enable_language(ASM)
 endif()
@@ -71,9 +74,12 @@ link_bare_module(nospoon_bin udx-native)
 # bare-fs — needed by compat.js and config.js
 link_bare_module(nospoon_bin bare-fs)
 
-# Our TUN addon — lives in native/, not node_modules
+# Our TUN addon — lives in native/, not node_modules.
+# link_bare_module needs it discoverable via resolve_node_module,
+# so we use add_subdirectory + manual static linking.
 add_subdirectory(native)
 
+# Use the same target name that add_bare_module() created inside native/
 bare_module_target(
   "${CMAKE_CURRENT_SOURCE_DIR}/native"
   nospoon_tun_target
@@ -82,6 +88,7 @@ bare_module_target(
   HASH nospoon_tun_hash
 )
 
+# Enable constructor-based self-registration for static linking
 target_compile_definitions(
   ${nospoon_tun_target}
   PRIVATE
@@ -89,11 +96,11 @@ target_compile_definitions(
     BARE_MODULE_CONSTRUCTOR_VERSION=${nospoon_tun_hash}
 )
 
+# Link only the object files into the binary (not the shared lib targets)
 target_link_libraries(
   nospoon_bin
   PRIVATE
     $<TARGET_OBJECTS:${nospoon_tun_target}>
-    ${nospoon_tun_target}
 )
 
 if(TARGET c++)
