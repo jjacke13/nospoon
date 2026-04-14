@@ -183,7 +183,7 @@ jobs:
             ARGS="--platform ${{ matrix.platform }} --arch ${{ matrix.arch }}"
           fi
           if [ "${{ runner.os }}" = "Windows" ]; then
-            ARGS="$ARGS -D CMAKE_ASM_NASM_COMPILER=\"C:/Program Files/NASM/nasm.exe\""
+            ARGS="$ARGS -D CMAKE_ASM_NASM_COMPILER=C:/PROGRA~1/NASM/nasm.exe"
           fi
           bare-make generate $ARGS
 
