@@ -29,7 +29,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.mkShell {
-            packages = with pkgs; [ cmake gcc nodejs_22 ];
+            packages = with pkgs; [ cmake gcc clang lld ninja nodejs_22 nasm ];
           };
 
           android = import ./android/shell.nix {

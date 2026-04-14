@@ -1,0 +1,12 @@
+[
+  { "addon": "bare-buffer" },
+  { "addon": "bare-fs" },
+  { "addon": "bare-inspect" },
+  { "addon": "bare-module-lexer" },
+  { "addon": "bare-os" },
+  { "addon": "bare-type" },
+  { "addon": "bare-url" },
+  { "addon": "nospoon-tun" },
+  { "addon": "sodium-native" },
+  { "addon": "udx-native" }
+]
