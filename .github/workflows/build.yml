@@ -124,10 +124,14 @@ jobs:
             platform: darwin
             arch: x64
             target: darwin-x64
-          - os: windows-2022
-            platform: win32
-            arch: x64
-            target: win32-x64
+          # Windows binary build disabled — Bare's V8 build requires NASM
+          # in a specific configuration that bare-make's bundled cmake can't
+          # find on GitHub Actions. Windows addon (.node) still builds fine.
+          # TODO: fix when bare-make improves Windows NASM detection
+          # - os: windows-2022
+          #   platform: win32
+          #   arch: x64
+          #   target: win32-x64
 
     runs-on: ${{ matrix.os }}
     name: binary (${{ matrix.target }})
