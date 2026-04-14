@@ -10,15 +10,6 @@ project(nospoon C CXX)
 
 bare_target(target)
 
-if(target MATCHES "win32")
-  find_program(NASM_FOUND nasm)
-  if(NASM_FOUND)
-    enable_language(ASM_NASM)
-  endif()
-else()
-  enable_language(ASM)
-endif()
-
 # Fetch Bare runtime — clones repo, runs npm ci, builds libbare_static.
 # Pin to a known-good version matching bare-nix.
 fetch_package("github:holepunchto/bare@1.28.1")
