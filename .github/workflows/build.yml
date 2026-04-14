@@ -166,7 +166,9 @@ jobs:
 
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
-        run: choco install nasm
+        run: |
+          choco install nasm
+          echo "C:\Program Files\NASM" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: npm install
@@ -182,9 +184,8 @@ jobs:
              [ "${{ matrix.arch }}" != "$(node -e "console.log(process.arch)")" ]; then
             ARGS="--platform ${{ matrix.platform }} --arch ${{ matrix.arch }}"
           fi
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            ARGS="$ARGS -D CMAKE_ASM_NASM_COMPILER=C:/PROGRA~1/NASM/nasm.exe"
-          fi
+          # Windows: NASM is added to PATH in earlier step;
+          # bare-make's cmake finds it via find_program
           bare-make generate $ARGS
 
       - name: Build
