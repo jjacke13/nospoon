@@ -1,0 +1,131 @@
+name: Build
+
+on:
+  push:
+    branches: [nospoon-bare]
+  pull_request:
+    branches: [nospoon-bare]
+
+jobs:
+  # Build native addon (.node + .bare) on each platform
+  addon:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-13
+            target: darwin-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: windows-latest
+            target: win32-x64
+
+    runs-on: ${{ matrix.os }}
+    name: addon (${{ matrix.target }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nospoon-bare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build native addon
+        working-directory: native
+        shell: bash
+        run: |
+          cmake -B build -DCMAKE_PREFIX_PATH="$(cd ../node_modules && pwd)"
+          cmake --build build --config Release
+
+      - name: Collect prebuilds
+        shell: bash
+        run: |
+          mkdir -p prebuilds/${{ matrix.target }}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp native/build/Release/nospoon-tun.node prebuilds/${{ matrix.target }}/ || \
+            cp native/build/nospoon-tun.node prebuilds/${{ matrix.target }}/
+          else
+            cp native/build/nospoon-tun.node prebuilds/${{ matrix.target }}/
+          fi
+          # .bare file has versioned name from cmake-bare
+          find native/build -name "*.bare" -exec cp {} prebuilds/${{ matrix.target }}/nospoon-tun.bare \;
+
+      - name: Verify addon loads
+        if: runner.os != 'Windows'
+        run: node -e "const b = require('./lib/binding'); console.log('OK:', Object.keys(b))"
+
+      - name: Verify addon loads (Windows)
+        if: runner.os == 'Windows'
+        run: node -e "const b = require('./lib/binding'); console.log('OK:', Object.keys(b))"
+
+      - name: Upload prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilds-${{ matrix.target }}
+          path: prebuilds/${{ matrix.target }}/
+
+  # Run tests (only needs one platform — tests don't touch TUN)
+  test:
+    runs-on: ubuntu-latest
+    needs: addon
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nospoon-bare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Download linux-x64 prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: prebuilds-linux-x64
+          path: prebuilds/linux-x64/
+
+      - name: Run tests
+        run: node --test test/*.test.js
+
+      - name: Verify CLI
+        run: node bin/cli.js genkey
+
+  # Collect all prebuilds into one artifact
+  prebuilds:
+    runs-on: ubuntu-latest
+    needs: [addon, test]
+    steps:
+      - name: Download all prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilds-*
+          path: prebuilds/
+          merge-multiple: false
+
+      - name: Reorganize
+        run: |
+          mkdir -p all-prebuilds
+          for dir in prebuilds/prebuilds-*/; do
+            target=$(basename "$dir" | sed 's/prebuilds-//')
+            mkdir -p all-prebuilds/$target
+            cp "$dir"/* all-prebuilds/$target/
+          done
+          echo "Prebuilds:"
+          find all-prebuilds -type f | sort
+
+      - name: Upload combined prebuilds
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilds-all
+          path: all-prebuilds/
