@@ -124,14 +124,10 @@ jobs:
             platform: darwin
             arch: x64
             target: darwin-x64
-          # Windows binary build disabled — Bare's V8 build requires NASM
-          # in a specific configuration that bare-make's bundled cmake can't
-          # find on GitHub Actions. Windows addon (.node) still builds fine.
-          # TODO: fix when bare-make improves Windows NASM detection
-          # - os: windows-2022
-          #   platform: win32
-          #   arch: x64
-          #   target: win32-x64
+          - os: windows-2022
+            platform: win32
+            arch: x64
+            target: win32-x64
 
     runs-on: ${{ matrix.os }}
     name: binary (${{ matrix.target }})
@@ -164,13 +160,13 @@ jobs:
           sudo apt-get update || true
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
 
-      - name: Install LLVM + NASM (Windows)
+      - name: Upgrade LLVM (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install llvm nasm -y
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          echo "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Append
+        run: choco upgrade llvm
+
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        run: choco install nasm
 
       - name: Install dependencies
         run: npm install
