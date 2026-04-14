@@ -8,5 +8,15 @@
   { "addon": "bare-url" },
   { "addon": "nospoon-tun" },
   { "addon": "sodium-native" },
-  { "addon": "udx-native" }
+  { "addon": "udx-native" },
+  "fs",
+  "path",
+  "os",
+  "child_process",
+  "crypto",
+  "events",
+  "net",
+  "url",
+  "stream",
+  "util"
 ]
