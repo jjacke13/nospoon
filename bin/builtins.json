@@ -4,6 +4,8 @@
   { "addon": "bare-inspect" },
   { "addon": "bare-module-lexer" },
   { "addon": "bare-os" },
+  { "addon": "bare-pipe" },
+  { "addon": "bare-subprocess" },
   { "addon": "bare-type" },
   { "addon": "bare-url" },
   { "addon": "nospoon-tun" },

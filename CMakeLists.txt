@@ -68,16 +68,18 @@ add_dependencies(nospoon_bin nospoon_bundle)
 # Core bare addons (bare-buffer, bare-os, bare-type, etc.) are already
 # in bare_static. We only need to link addons NOT built into bare_static.
 
-# HyperDHT deps
+# All native addons in the dependency tree — must be statically linked
+link_bare_module(nospoon_bin bare-buffer)
+link_bare_module(nospoon_bin bare-fs)
+link_bare_module(nospoon_bin bare-inspect)
+link_bare_module(nospoon_bin bare-module-lexer)
+link_bare_module(nospoon_bin bare-os)
+link_bare_module(nospoon_bin bare-pipe)
+link_bare_module(nospoon_bin bare-subprocess)
+link_bare_module(nospoon_bin bare-type)
+link_bare_module(nospoon_bin bare-url)
 link_bare_module(nospoon_bin sodium-native)
 link_bare_module(nospoon_bin udx-native)
-
-# bare-* modules needed by compat.js
-link_bare_module(nospoon_bin bare-fs)
-link_bare_module(nospoon_bin bare-os)
-link_bare_module(nospoon_bin bare-type)
-link_bare_module(nospoon_bin bare-inspect)
-link_bare_module(nospoon_bin bare-url)
 
 # Our TUN addon — lives in native/, not node_modules.
 # link_bare_module needs it discoverable via resolve_node_module,
