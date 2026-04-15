@@ -128,6 +128,10 @@ jobs:
             platform: win32
             arch: x64
             target: win32-x64
+          - os: ubuntu-24.04
+            platform: android
+            arch: arm64
+            target: android-arm64
 
     runs-on: ${{ matrix.os }}
     name: binary (${{ matrix.target }})
