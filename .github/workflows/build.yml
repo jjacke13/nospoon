@@ -166,7 +166,10 @@ jobs:
 
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
-        run: choco install nasm
+        shell: bash
+        run: |
+          choco install nasm -y
+          echo "/c/Program Files/NASM" >> $GITHUB_PATH
 
       - name: Install dependencies
         run: npm install
