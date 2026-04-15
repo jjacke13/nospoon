@@ -72,8 +72,12 @@ add_dependencies(nospoon_bin nospoon_bundle)
 link_bare_module(nospoon_bin sodium-native)
 link_bare_module(nospoon_bin udx-native)
 
-# bare-fs — needed by compat.js and config.js
+# bare-* modules needed by compat.js
 link_bare_module(nospoon_bin bare-fs)
+link_bare_module(nospoon_bin bare-os)
+link_bare_module(nospoon_bin bare-type)
+link_bare_module(nospoon_bin bare-inspect)
+link_bare_module(nospoon_bin bare-url)
 
 # Our TUN addon — lives in native/, not node_modules.
 # link_bare_module needs it discoverable via resolve_node_module,
