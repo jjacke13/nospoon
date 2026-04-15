@@ -132,6 +132,7 @@ jobs:
             platform: android
             arch: arm64
             target: android-arm64
+            flags: -D ANDROID_STL=c++_static
 
     runs-on: ${{ matrix.os }}
     name: binary (${{ matrix.target }})
@@ -189,7 +190,7 @@ jobs:
              [ "${{ matrix.arch }}" != "$(node -e "console.log(process.arch)")" ]; then
             ARGS="--platform ${{ matrix.platform }} --arch ${{ matrix.arch }}"
           fi
-          bare-make generate $ARGS
+          bare-make generate $ARGS ${{ matrix.flags }}
 
       - name: Build
         run: bare-make build
