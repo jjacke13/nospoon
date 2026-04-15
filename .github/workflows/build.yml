@@ -171,6 +171,15 @@ jobs:
           choco install nasm -y
           echo "/c/Program Files/NASM" >> $GITHUB_PATH
 
+      - name: Verify NASM (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "PATH: $PATH"
+          which nasm || echo "nasm NOT on PATH"
+          nasm --version || echo "nasm not runnable"
+          ls "C:/Program Files/NASM/" || echo "NASM dir not found"
+
       - name: Install dependencies
         run: npm install
 
@@ -185,7 +194,7 @@ jobs:
              [ "${{ matrix.arch }}" != "$(node -e "console.log(process.arch)")" ]; then
             ARGS="--platform ${{ matrix.platform }} --arch ${{ matrix.arch }}"
           fi
-          bare-make generate $ARGS
+          bare-make generate --verbose $ARGS
 
       - name: Build
         run: bare-make build
