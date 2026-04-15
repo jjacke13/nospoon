@@ -10,6 +10,14 @@ project(nospoon C CXX)
 
 bare_target(target)
 
+# V8 (inside Bare) needs assembly. Linux/macOS use GAS, Windows x64 uses NASM.
+# This must be in the root CMakeLists — V8's build inherits it from parent scope.
+if(target MATCHES "win32-x64")
+  enable_language(ASM_NASM)
+elseif(NOT target MATCHES "win32")
+  enable_language(ASM)
+endif()
+
 # Fetch Bare runtime — clones repo, runs npm ci, builds libbare_static.
 # Pin to a known-good version matching bare-nix.
 fetch_package("github:holepunchto/bare@1.28.1")

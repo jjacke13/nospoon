@@ -160,15 +160,13 @@ jobs:
           sudo apt-get update || true
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
 
-      - name: Upgrade LLVM (Windows)
+      - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
-        run: choco upgrade llvm
+        run: choco install llvm --version 20.1.8 --force
 
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
-        run: |
-          choco install nasm
-          echo "C:\Program Files\NASM" >> $GITHUB_PATH
+        run: choco install nasm
 
       - name: Install dependencies
         run: npm install
@@ -184,8 +182,6 @@ jobs:
              [ "${{ matrix.arch }}" != "$(node -e "console.log(process.arch)")" ]; then
             ARGS="--platform ${{ matrix.platform }} --arch ${{ matrix.arch }}"
           fi
-          # Windows: NASM is added to PATH in earlier step;
-          # bare-make's cmake finds it via find_program
           bare-make generate $ARGS
 
       - name: Build
