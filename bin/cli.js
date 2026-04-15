@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
-const { path, childProcess, platform, argv, env, exit, randomBytes } = require('../lib/compat')
+const { isBare, path, childProcess, platform, argv, env, exit, randomBytes } = require('../lib/compat')
 const { execFileSync } = childProcess
 const { loadConfig } = require('../lib/config')
 const { startServer } = require('../lib/server')
 const { startClient } = require('../lib/client')
 
-const args = argv.slice(2)
+// Node.js: argv = ['node', 'cli.js', ...args] → slice(2)
+// Bare script: argv = ['bare', 'cli.js', ...args] → slice(2)
+// Bare standalone: argv = ['nospoon', ...args] → slice(1)
+const isStandalone = isBare && (argv.length < 2 || !argv[1].endsWith('.js'))
+const args = argv.slice(isStandalone ? 1 : 2)
 const command = args[0]
 
 function printUsage () {
