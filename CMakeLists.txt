@@ -10,10 +10,12 @@ project(nospoon C CXX)
 
 bare_target(target)
 
-# V8 (inside Bare) needs assembly. Linux/macOS use GAS, Windows x64 uses NASM.
-# This must be in the root CMakeLists — V8's build inherits it from parent scope.
+# V8/BoringSSL need assembly. Linux/macOS use GAS, Windows needs both
+# NASM (for V8) and regular ASM (for BoringSSL with clang-cl).
+# These must be in the root CMakeLists — subdirectory builds inherit them.
 if(target MATCHES "win32-x64")
   enable_language(ASM_NASM)
+  enable_language(ASM)
 elseif(NOT target MATCHES "win32")
   enable_language(ASM)
 endif()
