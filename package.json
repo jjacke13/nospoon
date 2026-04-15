@@ -29,6 +29,11 @@
   "type": "commonjs",
   "dependencies": {
     "b4a": "^1.8.0",
+    "bare-events": "^2.8.2",
+    "bare-fs": "^4.7.1",
+    "bare-os": "^3.8.7",
+    "bare-path": "^3.0.0",
+    "bare-subprocess": "^6.0.0",
     "hyperdht": "^6.29.1",
     "require-addon": "^1.2.0"
   },
