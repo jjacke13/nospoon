@@ -205,11 +205,13 @@ jobs:
           name: binary-${{ matrix.target }}
           path: dist/${{ matrix.target }}/
 
-  # Collect all prebuilds and binaries
+  # Collect all prebuilds and binaries, create release
   artifacts:
     runs-on: ubuntu-latest
     needs: [addon, test, binary]
     if: always() && needs.test.result == 'success'
+    permissions:
+      contents: write
     steps:
       - name: Download all prebuilds
         uses: actions/download-artifact@v4
