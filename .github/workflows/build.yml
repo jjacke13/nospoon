@@ -262,3 +262,56 @@ jobs:
         with:
           name: binaries-all
           path: all-binaries/
+
+      - name: Create platform tarballs
+        run: |
+          mkdir -p release-assets
+          for dir in all-prebuilds/*/; do
+            target=$(basename "$dir")
+            tar czf release-assets/nospoon-prebuilds-$target.tar.gz -C "$dir" .
+          done
+          for dir in all-binaries/*/; do
+            [ -d "$dir" ] || continue
+            target=$(basename "$dir")
+            tar czf release-assets/nospoon-$target.tar.gz -C "$dir" .
+          done
+          echo "=== Release assets ==="
+          ls -lh release-assets/
+
+      - name: Create test release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v0.5.0-bare-test --yes 2>/dev/null || true
+          gh release create v0.5.0-bare-test \
+            --repo ${{ github.repository }} \
+            --target nospoon-bare \
+            --title "v0.5.0-bare-test — Bare runtime support (test release)" \
+            --notes "$(cat <<'EOF'
+          Test release from the nospoon-bare branch. **Not for production.**
+
+          ## Standalone binaries
+          Single-file executables with embedded Bare runtime + all addons.
+          No Node.js or npm needed — just download, extract, and run.
+
+          | File | Platform |
+          |------|----------|
+          | nospoon-linux-x64.tar.gz | Linux x86_64 |
+          | nospoon-linux-arm64.tar.gz | Linux ARM64 (Raspberry Pi) |
+          | nospoon-darwin-arm64.tar.gz | macOS Apple Silicon |
+          | nospoon-darwin-x64.tar.gz | macOS Intel |
+          | nospoon-win32-x64.tar.gz | Windows x64 |
+          | nospoon-android-arm64.tar.gz | Android ARM64 (embed as libnospoon.so) |
+
+          ## Native addon prebuilds
+          For use with `npm install nospoon` (Node.js or Bare runtime).
+
+          ## Usage
+          ```bash
+          tar xzf nospoon-linux-x64.tar.gz
+          sudo ./bin/nospoon up config.jsonc
+          ```
+          EOF
+          )" \
+            --prerelease \
+            release-assets/*
