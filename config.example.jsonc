@@ -11,6 +11,7 @@
   "seed": "aabbccdd...64hex",        // 64-char hex seed for deterministic key
   "seedFile": "/etc/nospoon/seed",   // or read seed from file (mutually exclusive with "seed")
   "mtu": 1400,                       // MTU size, 576–65535 (default: 1400)
+  "keepalive": 25000,                // NAT keepalive interval in ms (default: 25000, false to disable)
   "fullTunnel": true,                // enable NAT so clients can reach the internet
   "outInterface": "eth0",            // outgoing interface for NAT (default: auto-detect)
   "peers": {                         // authenticated mode — omit for open mode
@@ -28,5 +29,6 @@
 //   "seed": "aabbccdd...64hex",       // 64-char hex seed for authenticated mode
 //   "seedFile": "/etc/nospoon/seed",  // or read seed from file (mutually exclusive with "seed")
 //   "mtu": 1400,                      // MTU size, 576–65535 (default: 1400)
+//   "keepalive": 25000,               // NAT keepalive interval in ms (default: 25000, false to disable)
 //   "fullTunnel": true                // route all traffic through the VPN
 // }
