@@ -284,7 +284,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete v0.5.0-bare-test --yes 2>/dev/null || true
+          gh release delete v0.5.0-bare-test --yes --cleanup-tag --repo ${{ github.repository }} 2>/dev/null || true
           gh release create v0.5.0-bare-test \
             --repo ${{ github.repository }} \
             --target nospoon-bare \
