@@ -199,6 +199,11 @@ jobs:
         shell: bash
         run: bare-make install --strip --prefix dist/${{ matrix.target }}
 
+      - name: Bundle wintun.dll (Windows)
+        if: matrix.target == 'win32-x64'
+        shell: bash
+        run: cp bin/win32-x64/wintun.dll dist/${{ matrix.target }}/bin/
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
