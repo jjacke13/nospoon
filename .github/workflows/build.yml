@@ -259,9 +259,10 @@ jobs:
       - name: Test config loading
         shell: bash
         run: |
+          echo '{"mode":"server","ip":"10.0.0.1/24"}' > /tmp/test.jsonc
           node -e "
             const { loadConfig } = require('./lib/config');
-            const c = loadConfig('./test-server.jsonc');
+            const c = loadConfig('/tmp/test.jsonc');
             console.log('Config OK:', c.mode, c.ip);
           "
 
@@ -318,11 +319,12 @@ jobs:
       - name: Test config loading
         shell: bash
         run: |
+          echo '{"mode":"server","ip":"10.0.0.1/24"}' > /tmp/test.jsonc
           if [ "${{ runner.os }}" = "Windows" ]; then
-            dist/bin/nospoon.exe up test-server.jsonc 2>&1 | head -5 || true
+            echo '{"mode":"server","ip":"10.0.0.1/24"}' > test.jsonc
+            dist/bin/nospoon.exe up test.jsonc 2>&1 | head -5 || true
           else
-            # Will fail (no root) but should get past config loading
-            dist/bin/nospoon up test-server.jsonc 2>&1 | head -5 || true
+            dist/bin/nospoon up /tmp/test.jsonc 2>&1 | head -5 || true
           fi
 
   # Collect all prebuilds and binaries, create release
