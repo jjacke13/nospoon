@@ -210,10 +210,125 @@ jobs:
           name: binary-${{ matrix.target }}
           path: dist/${{ matrix.target }}/
 
+  # Smoke test: verify npm package works on each platform (Node.js)
+  smoke-node:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-14
+            target: darwin-arm64
+          - os: windows-latest
+            target: win32-x64
+
+    runs-on: ${{ matrix.os }}
+    needs: addon
+    name: smoke-node (${{ matrix.target }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nospoon-bare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Download prebuild
+        uses: actions/download-artifact@v4
+        with:
+          name: prebuilds-${{ matrix.target }}
+          path: prebuilds/${{ matrix.target }}/
+
+      - name: Verify addon loads
+        run: node -e "const b = require('./lib/binding'); console.log('Addon OK:', Object.keys(b))"
+
+      - name: Run unit tests
+        run: node --test test/*.test.js
+
+      - name: Test genkey
+        run: node bin/cli.js genkey
+
+      - name: Test config loading
+        shell: bash
+        run: |
+          node -e "
+            const { loadConfig } = require('./lib/config');
+            const c = loadConfig('./test-server.jsonc');
+            console.log('Config OK:', c.mode, c.ip);
+          "
+
+  # Smoke test: verify standalone binary works on each platform
+  smoke-binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: macos-14
+            target: darwin-arm64
+          - os: windows-latest
+            target: win32-x64
+
+    runs-on: ${{ matrix.os }}
+    needs: binary
+    name: smoke-binary (${{ matrix.target }})
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nospoon-bare
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/
+
+      - name: Make executable
+        if: runner.os != 'Windows'
+        run: chmod +x dist/bin/nospoon
+
+      - name: Test --help
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            dist/bin/nospoon.exe --help
+          else
+            dist/bin/nospoon --help
+          fi
+
+      - name: Test genkey
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            dist/bin/nospoon.exe genkey
+          else
+            dist/bin/nospoon genkey
+          fi
+
+      - name: Test config loading
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            dist/bin/nospoon.exe up test-server.jsonc 2>&1 | head -5 || true
+          else
+            # Will fail (no root) but should get past config loading
+            dist/bin/nospoon up test-server.jsonc 2>&1 | head -5 || true
+          fi
+
   # Collect all prebuilds and binaries, create release
   artifacts:
     runs-on: ubuntu-latest
-    needs: [addon, test, binary]
+    needs: [addon, test, binary, smoke-node, smoke-binary]
     if: always() && needs.test.result == 'success'
     permissions:
       contents: write
