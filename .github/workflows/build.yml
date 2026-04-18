@@ -259,10 +259,10 @@ jobs:
       - name: Test config loading
         shell: bash
         run: |
-          echo '{"mode":"server","ip":"10.0.0.1/24"}' > /tmp/test.jsonc
+          echo '{"mode":"server","ip":"10.0.0.1/24"}' > smoke-test.jsonc
           node -e "
             const { loadConfig } = require('./lib/config');
-            const c = loadConfig('/tmp/test.jsonc');
+            const c = loadConfig('./smoke-test.jsonc');
             console.log('Config OK:', c.mode, c.ip);
           "
 
