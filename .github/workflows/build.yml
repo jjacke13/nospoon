@@ -316,15 +316,14 @@ jobs:
             dist/bin/nospoon genkey
           fi
 
-      - name: Test config loading
+      - name: Test invalid config (verify config parsing works)
         shell: bash
         run: |
-          echo '{"mode":"server","ip":"10.0.0.1/24"}' > /tmp/test.jsonc
+          echo '{"mode":"invalid"}' > bad.jsonc
           if [ "${{ runner.os }}" = "Windows" ]; then
-            echo '{"mode":"server","ip":"10.0.0.1/24"}' > test.jsonc
-            dist/bin/nospoon.exe up test.jsonc 2>&1 | head -5 || true
+            dist/bin/nospoon.exe up bad.jsonc 2>&1 && exit 1 || echo "Config validation works (rejected invalid mode)"
           else
-            dist/bin/nospoon up /tmp/test.jsonc 2>&1 | head -5 || true
+            dist/bin/nospoon up bad.jsonc 2>&1 && exit 1 || echo "Config validation works (rejected invalid mode)"
           fi
 
   # Collect all prebuilds and binaries, create release
