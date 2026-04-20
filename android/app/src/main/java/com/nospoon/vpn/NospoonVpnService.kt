@@ -162,24 +162,25 @@ class NospoonVpnService : VpnService() {
             return
         }
 
-        // Get a blocking TUN fd for the binary
+        // Get a blocking TUN fd for the binary.
+        // The fd must survive exec() so the child process can use it.
         val origFd = vpnInterface!!.fileDescriptor
         val fdField = FileDescriptor::class.java.getDeclaredField("descriptor")
         fdField.isAccessible = true
-        val origFdNum = fdField.getInt(origFd)
-        val tunFd = try {
-            val openedFd = Os.open("/proc/self/fd/$origFdNum", OsConstants.O_RDWR, 0)
-            fdField.getInt(openedFd)
-        } catch (e: ErrnoException) {
-            Log.w(TAG, "/proc/self/fd open failed, falling back to dup: ${e.message}")
-            val dupPfd = vpnInterface!!.dup()
-            val fd = dupPfd.detachFd()
-            val tmpFd = FileDescriptor()
-            fdField.setInt(tmpFd, fd)
-            val flags = Os.fcntlInt(tmpFd, OsConstants.F_GETFL, 0)
-            Os.fcntlInt(tmpFd, OsConstants.F_SETFL, flags and OsConstants.O_NONBLOCK.inv())
-            fd
-        }
+
+        // dup() the VPN fd and make it blocking + inheritable
+        val dupPfd = vpnInterface!!.dup()
+        val tunFd = dupPfd.detachFd()
+        val tunFdObj = FileDescriptor()
+        fdField.setInt(tunFdObj, tunFd)
+
+        // Clear O_NONBLOCK — bare-fs needs blocking reads
+        val fileFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFL, 0)
+        Os.fcntlInt(tunFdObj, OsConstants.F_SETFL, fileFlags and OsConstants.O_NONBLOCK.inv())
+
+        // Clear FD_CLOEXEC — fd must survive exec() into child process
+        Os.fcntlInt(tunFdObj, OsConstants.F_SETFD, 0)
+        Log.d(TAG, "TUN fd $tunFd: blocking, inheritable (FD_CLOEXEC cleared)")
 
         tunFdForBinary = tunFd
 
