@@ -15,10 +15,8 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.Log
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.File
 import java.io.FileDescriptor
-import java.io.InputStreamReader
 
 class NospoonVpnService : VpnService() {
 
@@ -37,8 +35,8 @@ class NospoonVpnService : VpnService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var nospoonProcess: Process? = null
-    private var stdoutReader: Thread? = null
+    private var nospoonPid: Int = -1
+    private var processWatcher: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     // Tracked state so Activity can query on resume
@@ -115,7 +113,7 @@ class NospoonVpnService : VpnService() {
 
     private fun startVpn(config: JSONObject) {
         // Tear down any existing connection before starting a new one
-        if (nospoonProcess != null) {
+        if (nospoonPid > 0) {
             Log.d(TAG, "Cleaning up previous connection before restart")
             cleanup()
         }
@@ -197,73 +195,42 @@ class NospoonVpnService : VpnService() {
             return
         }
 
-        // Spawn the nospoon binary with the TUN fd
-        // Child process inherits the fd and the app's VPN-exempt UID
-        Log.i(TAG, "Spawning nospoon binary: --tun-fd=$tunFd")
-        val pb = ProcessBuilder(
+        // Fork+exec the nospoon binary — fork preserves all fds including TUN.
+        // The child inherits our UID (VPN-exempt) and the TUN fd.
+        // Logs go to logcat automatically via inherited stderr.
+        Log.i(TAG, "Forking nospoon binary: --tun-fd=$tunFd")
+        nospoonPid = NativeHelper.exec(arrayOf(
             binaryPath, "up", "--tun-fd=$tunFd", configFile.absolutePath
-        )
-        pb.redirectErrorStream(true) // merge stderr into stdout
-        nospoonProcess = pb.start()
+        ))
 
-        // Read stdout for status messages (JSON lines)
-        stdoutReader = Thread {
-            try {
-                val reader = BufferedReader(InputStreamReader(nospoonProcess!!.inputStream))
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    val l = line!!.trim()
-                    Log.d(TAG, "nospoon: $l")
+        if (nospoonPid <= 0) {
+            Log.e(TAG, "Failed to fork nospoon binary")
+            broadcastStatus("Error: fork failed", false)
+            cleanup()
+            return
+        }
 
-                    // Try to parse as JSON status message
-                    try {
-                        val msg = JSONObject(l)
-                        handler.post { handleBinaryMessage(msg) }
-                    } catch (_: Exception) {
-                        // Plain text log line — check for known strings
-                        if (l.contains("Connected to server")) {
-                            handler.post {
-                                updateNotification("Connected")
-                                broadcastStatus("Connected", true)
-                            }
-                        } else if (l.contains("Connection lost") || l.contains("Reconnecting")) {
-                            handler.post {
-                                updateNotification("Reconnecting...")
-                                broadcastStatus("Reconnecting...", false)
-                            }
-                        }
+        Log.i(TAG, "nospoon child pid: $nospoonPid")
+        broadcastStatus("Connected", true)
+        updateNotification("Connected")
+
+        // Watch for child exit in a background thread
+        processWatcher = Thread {
+            while (nospoonPid > 0) {
+                val code = NativeHelper.waitpid(nospoonPid)
+                if (code != -2) { // -2 = still running
+                    Log.i(TAG, "nospoon process exited with code $code")
+                    handler.post {
+                        broadcastStatus("Disconnected", false)
+                        cleanup()
                     }
+                    return@Thread
                 }
-            } catch (e: Exception) {
-                Log.d(TAG, "stdout reader ended: ${e.message}")
-            }
-
-            // Process exited
-            handler.post {
-                Log.i(TAG, "nospoon process exited")
-                broadcastStatus("Disconnected", false)
-                cleanup()
+                Thread.sleep(1000)
             }
         }.apply {
             isDaemon = true
             start()
-        }
-
-        broadcastStatus("Connecting...", false)
-    }
-
-    private fun handleBinaryMessage(msg: JSONObject) {
-        when (msg.optString("type")) {
-            "status" -> {
-                val connected = msg.getBoolean("connected")
-                val text = if (connected) "Connected" else "Reconnecting..."
-                updateNotification(text)
-                broadcastStatus(text, connected)
-            }
-            "error" -> {
-                Log.e(TAG, "nospoon error: ${msg.getString("message")}")
-                broadcastStatus("Error: ${msg.getString("message")}", false)
-            }
         }
     }
 
@@ -286,16 +253,18 @@ class NospoonVpnService : VpnService() {
     }
 
     private fun stopVpn() {
-        nospoonProcess?.destroy()
-        // cleanup() will be called when stdout reader detects process exit
+        if (nospoonPid > 0) NativeHelper.kill(nospoonPid)
+        // cleanup() will be called when process watcher detects exit
         // Force cleanup after 2s if process doesn't die
         handler.postDelayed({ cleanup() }, 2000)
     }
 
     private fun cleanup() {
-        nospoonProcess?.destroyForcibly()
-        nospoonProcess = null
-        stdoutReader = null
+        if (nospoonPid > 0) {
+            NativeHelper.kill(nospoonPid)
+            nospoonPid = -1
+        }
+        processWatcher = null
 
         // Close the TUN fd before the VPN interface
         if (tunFdForBinary >= 0) {
