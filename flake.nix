@@ -3,9 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    bare-nix.url = "path:/home/jacke/Desktop/repos/bare-nix";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, bare-nix }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
 
@@ -21,7 +22,16 @@
       in {
         default = nospoon;
         nospoon = nospoon;
-      });
+      } // (
+        # nospoon-bare only available where bare-nix provides a package
+        if bare-nix.packages ? ${pkgs.system}
+        then {
+          nospoon-bare = pkgs.callPackage ./package-bare.nix {
+            bare = bare-nix.packages.${pkgs.system}.bare;
+          };
+        }
+        else { }
+      ));
 
       devShells = nixpkgs.lib.genAttrs
         [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ]
