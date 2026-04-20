@@ -14,6 +14,9 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
@@ -33,16 +36,13 @@ android {
 
     sourceSets {
         getByName("main") {
-            // Native addon .so files from bare-link + bare-kit runtime
-            jniLibs.srcDirs("src/main/addons", "libs/bare-kit/jni")
+            // libnospoon.so goes in jniLibs/arm64-v8a/
+            jniLibs.srcDirs("src/main/jniLibs")
         }
     }
 }
 
 dependencies {
-    // bare-kit Java classes (downloaded from GitHub releases)
-    api(files("libs/bare-kit/classes.jar"))
-
     // Material Design 3 (includes RecyclerView)
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.core:core-ktx:1.13.1")

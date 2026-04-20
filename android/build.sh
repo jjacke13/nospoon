@@ -28,15 +28,6 @@ check_env() {
         exit 1
     fi
 
-    # Set NDK_HOME if not set
-    if [ -z "$ANDROID_NDK_HOME" ]; then
-        ANDROID_NDK_HOME=$(ls -d $ANDROID_HOME/ndk/*/ 2>/dev/null | head -1)
-        if [ -n "$ANDROID_NDK_HOME" ]; then
-            export ANDROID_NDK_HOME
-            log_info "Detected ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-        fi
-    fi
-
     # Set JAVA_HOME if not set
     if [ -z "$JAVA_HOME" ]; then
         JAVA_BIN=$(which java 2>/dev/null || echo "")
@@ -51,83 +42,53 @@ check_env() {
     log_info "  ANDROID_HOME=$ANDROID_HOME"
 }
 
-# Install JS dependencies
-install_deps() {
-    log_info "Installing JS dependencies..."
-    npm install --legacy-peer-deps
-}
+# Download nospoon binary from GitHub Actions or releases
+download_binary() {
+    local BINARY_PATH="app/src/main/jniLibs/arm64-v8a/libnospoon.so"
 
-# Download bare-kit
-download_barekit() {
-    if [ -f "app/libs/bare-kit/classes.jar" ] && [ -d "app/libs/bare-kit/jni/arm64-v8a" ]; then
-        log_info "bare-kit already exists, skipping download"
+    if [ -f "$BINARY_PATH" ]; then
+        log_info "libnospoon.so already exists, skipping download"
         return
     fi
 
-    log_info "Downloading bare-kit..."
+    log_info "Downloading nospoon android-arm64 binary..."
 
-    # Create libs directory
-    mkdir -p app/libs/bare-kit
+    mkdir -p app/src/main/jniLibs/arm64-v8a
 
-    # Download and extract bare-kit from GitHub releases
-    local tmpdir="/tmp/barekit-$$"
+    # Try GitHub release first
+    local tmpdir="/tmp/nospoon-android-$$"
     mkdir -p "$tmpdir"
-    gh release download --repo holepunchto/bare-kit v1.15.2 \
-        --pattern "prebuilds.zip" \
-        --dir "$tmpdir" || {
-        log_error "Failed to download bare-kit. Make sure gh CLI is authenticated:"
-        log_error "  gh auth login"
+    if gh release download v0.5.0-bare-test \
+        --repo jjacke13/nospoon \
+        --pattern "nospoon-android-arm64.tar.gz" \
+        --dir "$tmpdir" 2>/dev/null; then
+        tar xzf "$tmpdir/nospoon-android-arm64.tar.gz" -C "$tmpdir"
+        cp "$tmpdir/bin/nospoon" "$BINARY_PATH"
+        chmod +x "$BINARY_PATH"
         rm -rf "$tmpdir"
-        exit 1
-    }
+        log_info "Binary installed from release"
+        return
+    fi
 
-    # Extract Android prebuilds
-    mkdir -p app/libs/bare-kit/jni
-    unzip -o "$tmpdir/prebuilds.zip" "android/bare-kit/jni/*" "android/bare-kit/classes.jar" -d "$tmpdir/extract" > /dev/null
-    mv "$tmpdir/extract/android/bare-kit/jni/"* app/libs/bare-kit/jni/
-    mv "$tmpdir/extract/android/bare-kit/classes.jar" app/libs/bare-kit/
+    # Fallback: download from latest CI artifacts
+    log_warn "Release not found, trying CI artifacts..."
+    local RUN_ID
+    RUN_ID=$(gh run list --repo jjacke13/nospoon --branch nospoon-bare --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+    if [ -n "$RUN_ID" ]; then
+        gh run download "$RUN_ID" --repo jjacke13/nospoon -n binary-android-arm64 -D "$tmpdir" 2>/dev/null || true
+        if [ -f "$tmpdir/bin/nospoon" ]; then
+            cp "$tmpdir/bin/nospoon" "$BINARY_PATH"
+            chmod +x "$BINARY_PATH"
+            rm -rf "$tmpdir"
+            log_info "Binary installed from CI artifacts"
+            return
+        fi
+    fi
+
     rm -rf "$tmpdir"
-
-    log_info "bare-kit installed to app/libs/bare-kit"
-}
-
-# Link native addons
-link_addons() {
-    log_info "Linking native addons..."
-
-    # Create addons directory
-    mkdir -p app/src/main/addons
-
-    # Link bare-kit and its dependencies to the addons directory
-    npx bare-link --preset android --out app/src/main/addons
-
-    # Verify addons were linked
-    local so_count
-    so_count=$(find app/src/main/addons -name '*.so' 2>/dev/null | wc -l)
-    if [ "$so_count" -gt 0 ]; then
-        log_info "Native addons linked: $so_count .so files"
-    else
-        log_warn "No .so files in addons directory"
-    fi
-}
-
-# Bundle JS worklet (embed everything, no linking)
-bundle_worklet() {
-    log_info "Bundling JS worklet..."
-
-    # Create assets directory if needed
-    mkdir -p app/src/main/assets
-
-    # Bundle WITHOUT --linked - embed native addons in the bundle
-    npx bare-pack --preset android --out app/src/main/assets/client.bundle worklet/client.js
-
-    # Verify bundle was created
-    if [ ! -f "app/src/main/assets/client.bundle" ]; then
-        log_error "Failed to create client.bundle"
-        exit 1
-    fi
-
-    log_info "Bundle created: $(ls -la app/src/main/assets/client.bundle)"
+    log_error "Could not download nospoon binary."
+    log_error "Place the android-arm64 binary at: $BINARY_PATH"
+    exit 1
 }
 
 # Build debug APK
@@ -161,10 +122,7 @@ main() {
     log_info "================================"
 
     check_env
-    install_deps
-    download_barekit
-    link_addons
-    bundle_worklet
+    download_binary
     build_apk
 
     log_info "Done!"
