@@ -146,10 +146,13 @@ class NospoonVpnService : VpnService() {
             .setSession("nospoon")
             .setMtu(mtu)
             .addAddress(ip, prefix)
+            // Exempt our app from VPN routing — the forked nospoon binary
+            // (same UID) needs direct network access for DHT hole-punching.
+            // Without this, same-LAN connections fail.
+            .addDisallowedApplication(packageName)
 
         if (fullTunnel) {
             builder.addRoute("0.0.0.0", 0)
-            builder.addDisallowedApplication(packageName)
             builder.addDnsServer("1.1.1.1")
             builder.addDnsServer("8.8.8.8")
             Log.d(TAG, "Full tunnel mode")
