@@ -38,10 +38,14 @@ Java_com_nospoon_vpn_NativeHelper_exec(JNIEnv *env, jclass cls, jobjectArray arg
 
     pid_t pid = fork();
     if (pid == 0) {
-        // Child process — redirect stdout to pipe, keep stderr for logcat
+        // Child process — redirect both stdout and stderr to pipe.
+        // Bare on Android writes to both logcat and stdio; capturing
+        // both ensures we see all status messages.
+        // Pipe output is also line-buffered this way (stderr is unbuffered).
         close(pipefd[0]); // close read end
         dup2(pipefd[1], STDOUT_FILENO); // stdout → pipe
-        close(pipefd[1]); // close original write end (dup'd to stdout)
+        dup2(pipefd[1], STDERR_FILENO); // stderr → pipe
+        close(pipefd[1]); // close original write end
 
         // All other fds inherited (including TUN fd)
         execv(argv[0], argv);
