@@ -5,10 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
@@ -46,7 +42,6 @@ class NospoonVpnService : VpnService() {
     private var stdoutReadFd: Int = -1
     private var stdoutReader: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var pendingConfig: JSONObject? = null
 
     // Tracked state so Activity can query on resume
@@ -267,56 +262,6 @@ class NospoonVpnService : VpnService() {
             start()
         }
 
-        // Watch for network changes — restart binary on WiFi↔mobile switch
-        registerNetworkCallback()
-    }
-
-    private fun registerNetworkCallback() {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onLost(network: Network) {
-                Log.i(TAG, "Network lost — restarting nospoon")
-                handler.post { restartBinary() }
-            }
-
-            override fun onAvailable(network: Network) {
-                Log.i(TAG, "Network available — restarting nospoon")
-                handler.post { restartBinary() }
-            }
-        }
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        cm.registerNetworkCallback(request, callback)
-        networkCallback = callback
-    }
-
-    private fun restartBinary() {
-        val config = pendingConfig ?: return
-        // Kill current binary, keep VPN interface
-        if (nospoonPid > 0) {
-            NativeHelper.kill(nospoonPid)
-            nospoonPid = -1
-        }
-        if (stdoutReadFd >= 0) {
-            try { Os.close(FileDescriptor().also {
-                val f = FileDescriptor::class.java.getDeclaredField("descriptor")
-                f.isAccessible = true
-                f.setInt(it, stdoutReadFd)
-            }) } catch (_: ErrnoException) {}
-            stdoutReadFd = -1
-        }
-        stdoutReader = null
-
-        // Small delay to let network settle
-        handler.postDelayed({
-            if (vpnInterface != null) {
-                broadcastStatus("Reconnecting...", false)
-                updateNotification("Reconnecting...")
-                // Re-launch with existing config
-                startVpn(config)
-            }
-        }, 2000)
     }
 
     private fun broadcastStatus(text: String, connected: Boolean) {
@@ -343,15 +288,6 @@ class NospoonVpnService : VpnService() {
     }
 
     private fun cleanup() {
-        // Unregister network callback
-        if (networkCallback != null) {
-            try {
-                getSystemService(ConnectivityManager::class.java)
-                    .unregisterNetworkCallback(networkCallback!!)
-            } catch (_: Exception) {}
-            networkCallback = null
-        }
-
         if (nospoonPid > 0) {
             NativeHelper.kill(nospoonPid)
             nospoonPid = -1
