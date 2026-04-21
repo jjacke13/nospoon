@@ -8,11 +8,15 @@
 // Fork+exec that preserves all open file descriptors.
 // Java's ProcessBuilder closes non-standard fds during exec,
 // but we need the TUN fd to survive into the child process.
+//
+// Returns int[2] = { pid, stdout_read_fd }
+// Child's stdout is redirected to a pipe so Kotlin can read status.
+// Child's stderr goes to logcat (inherited from parent).
 
-JNIEXPORT jint JNICALL
+JNIEXPORT jintArray JNICALL
 Java_com_nospoon_vpn_NativeHelper_exec(JNIEnv *env, jclass cls, jobjectArray args) {
     int argc = (*env)->GetArrayLength(env, args);
-    if (argc < 1) return -1;
+    if (argc < 1) return NULL;
 
     // Convert Java String[] to C char*[]
     char **argv = (char **) calloc(argc + 1, sizeof(char *));
@@ -24,19 +28,36 @@ Java_com_nospoon_vpn_NativeHelper_exec(JNIEnv *env, jclass cls, jobjectArray arg
     }
     argv[argc] = NULL;
 
+    // Create a pipe for capturing child's stdout
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        for (int i = 0; i < argc; i++) free(argv[i]);
+        free(argv);
+        return NULL;
+    }
+
     pid_t pid = fork();
     if (pid == 0) {
-        // Child process — all fds inherited (including TUN fd)
+        // Child process — redirect stdout to pipe, keep stderr for logcat
+        close(pipefd[0]); // close read end
+        dup2(pipefd[1], STDOUT_FILENO); // stdout → pipe
+        close(pipefd[1]); // close original write end (dup'd to stdout)
+
+        // All other fds inherited (including TUN fd)
         execv(argv[0], argv);
-        // execv only returns on error
         _exit(127);
     }
 
-    // Parent — free allocated strings
+    // Parent — close write end, return {pid, read_fd}
+    close(pipefd[1]);
+
     for (int i = 0; i < argc; i++) free(argv[i]);
     free(argv);
 
-    return (jint) pid;
+    jintArray result = (*env)->NewIntArray(env, 2);
+    jint vals[2] = { (jint) pid, (jint) pipefd[0] };
+    (*env)->SetIntArrayRegion(env, result, 0, 2, vals);
+    return result;
 }
 
 // Send SIGTERM to the child process

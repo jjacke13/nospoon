@@ -6,9 +6,10 @@ object NativeHelper {
     }
 
     // Fork+exec preserving all fds (including TUN fd).
-    // Returns child PID, or -1 on error.
+    // Returns int[2] = { pid, stdout_read_fd }, or null on error.
+    // Child's stdout is captured via pipe. stderr goes to logcat.
     @JvmStatic
-    external fun exec(args: Array<String>): Int
+    external fun exec(args: Array<String>): IntArray?
 
     // Send SIGTERM to child process.
     @JvmStatic
