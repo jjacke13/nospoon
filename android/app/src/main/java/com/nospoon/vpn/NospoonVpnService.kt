@@ -186,6 +186,16 @@ class NospoonVpnService : VpnService() {
                     if (l == "CONNECTED") {
                         // Phase 2: DHT connected — establish VPN and send TUN fd
                         handler.post { establishAndSendTunFd(config) }
+                    } else if (l == "STATUS:connected") {
+                        handler.post {
+                            updateNotification("Connected")
+                            broadcastStatus("Connected", true)
+                        }
+                    } else if (l == "STATUS:reconnecting") {
+                        handler.post {
+                            updateNotification("Reconnecting...")
+                            broadcastStatus("Reconnecting...", false)
+                        }
                     }
                 }
             } catch (e: Exception) {

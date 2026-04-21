@@ -130,13 +130,15 @@ async function main () {
       }
       const binding = require('../lib/binding')
 
-      // Override startClient to use two-phase: connect DHT, then receive TUN fd
+      // IPC: send status updates to parent over the socketpair
+      config.ipcWrite = function (msg) {
+        try { binding.writeIpc(fdSocket, msg) } catch (e) {}
+      }
+
+      // Two-phase: connect DHT first, then receive TUN fd from parent
       config.onConnected = function () {
-        // Tell parent we're connected — parent will establish VPN and send TUN fd
         binding.writeIpc(fdSocket, 'CONNECTED')
         console.log('Waiting for TUN fd from parent...')
-
-        // Block until parent sends the TUN fd via SCM_RIGHTS
         const tunFd = binding.recvFd(fdSocket)
         console.log('Received TUN fd ' + tunFd + ' from parent')
         return createTunFromFd(tunFd, 'tun0', { mtu: config.mtu })
