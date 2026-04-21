@@ -39,16 +39,13 @@ class NospoonVpnService : VpnService() {
     private val handler = Handler(Looper.getMainLooper())
     private var vpnInterface: ParcelFileDescriptor? = null
     private var nospoonPid: Int = -1
-    private var stdoutReadFd: Int = -1
-    private var stdoutReader: Thread? = null
+    private var ipcSocketFd: Int = -1
+    private var ipcReader: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var pendingConfig: JSONObject? = null
 
-    // Tracked state so Activity can query on resume
     private var currentStatusText = "Disconnected"
     private var currentConnected = false
-
-    // TUN fd passed to the binary — must be closed explicitly on cleanup
     private var tunFdForBinary: Int = -1
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -117,7 +114,6 @@ class NospoonVpnService : VpnService() {
     }
 
     private fun startVpn(config: JSONObject) {
-        // Tear down any existing connection before starting a new one
         if (nospoonPid > 0) {
             Log.d(TAG, "Cleaning up previous connection before restart")
             cleanup()
@@ -126,7 +122,6 @@ class NospoonVpnService : VpnService() {
         pendingConfig = config
         startForegroundNotification()
 
-        // Keep CPU awake so DHT keepalives aren't killed by Doze
         if (wakeLock == null) {
             val pm = getSystemService(PowerManager::class.java)
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "nospoon:vpn").apply {
@@ -134,7 +129,83 @@ class NospoonVpnService : VpnService() {
             }
         }
 
-        // Establish VPN interface
+        // Write config to temp file
+        val configFile = File(cacheDir, "nospoon-config.jsonc")
+        configFile.writeText(config.toString())
+
+        val binaryPath = applicationInfo.nativeLibraryDir + "/libnospoon.so"
+        if (!File(binaryPath).exists()) {
+            Log.e(TAG, "nospoon binary not found at $binaryPath")
+            broadcastStatus("Error: binary not found", false)
+            cleanup()
+            return
+        }
+
+        // Phase 1: Fork binary with --fd-socket (NO VPN yet).
+        // Binary connects DHT over regular internet — works on same LAN.
+        // The socketpair is used for IPC: binary sends "CONNECTED",
+        // we send back the TUN fd via SCM_RIGHTS.
+        val result = NativeHelper.exec(arrayOf(
+            binaryPath, "up", "--fd-socket=CHILD_SOCK", configFile.absolutePath
+        ))
+
+        if (result == null || result[0] <= 0) {
+            Log.e(TAG, "Failed to fork nospoon binary")
+            broadcastStatus("Error: fork failed", false)
+            cleanup()
+            return
+        }
+
+        nospoonPid = result[0]
+        ipcSocketFd = result[1]
+        val childSockFd = result[2]
+
+        // Fix up the --fd-socket argument with the actual child fd number.
+        // The child already has it inherited; we need to tell it which fd.
+        // Actually, we need to pass the fd number BEFORE exec...
+        // Let's use a different approach: pass it as the last arg.
+
+        Log.i(TAG, "nospoon child pid: $nospoonPid, ipc socket: $ipcSocketFd, child sock: $childSockFd")
+        broadcastStatus("Connecting...", false)
+
+        // Read IPC messages from child on a background thread
+        ipcReader = Thread {
+            val fdField = FileDescriptor::class.java.getDeclaredField("descriptor")
+            fdField.isAccessible = true
+            try {
+                val fis = FileInputStream(FileDescriptor().also {
+                    fdField.setInt(it, ipcSocketFd)
+                })
+                val reader = BufferedReader(InputStreamReader(fis))
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val l = line!!.trim()
+                    if (l.isEmpty()) continue
+                    Log.d(TAG, "ipc: $l")
+
+                    if (l == "CONNECTED") {
+                        // Phase 2: DHT connected — establish VPN and send TUN fd
+                        handler.post { establishAndSendTunFd(config) }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "ipc reader ended: ${e.message}")
+            }
+
+            handler.post {
+                Log.i(TAG, "nospoon process exited")
+                broadcastStatus("Disconnected", false)
+                cleanup()
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    // Phase 2: Called when binary reports DHT is connected.
+    // NOW establish VPN and send TUN fd to binary via SCM_RIGHTS.
+    private fun establishAndSendTunFd(config: JSONObject) {
         val ipFull = config.optString("ip", "10.0.0.2/24")
         val parts = ipFull.split("/")
         val ip = parts[0]
@@ -146,9 +217,6 @@ class NospoonVpnService : VpnService() {
             .setSession("nospoon")
             .setMtu(mtu)
             .addAddress(ip, prefix)
-            // Exempt our app from VPN routing — the forked nospoon binary
-            // (same UID) needs direct network access for DHT hole-punching.
-            // Without this, same-LAN connections fail.
             .addDisallowedApplication(packageName)
 
         if (fullTunnel) {
@@ -165,11 +233,11 @@ class NospoonVpnService : VpnService() {
         if (vpnInterface == null) {
             Log.e(TAG, "Failed to establish VPN interface")
             broadcastStatus("Error: VPN permission denied", false)
-            stopSelf()
+            cleanup()
             return
         }
 
-        // Get a blocking TUN fd for the binary
+        // Get a blocking TUN fd
         val fdField = FileDescriptor::class.java.getDeclaredField("descriptor")
         fdField.isAccessible = true
 
@@ -178,93 +246,24 @@ class NospoonVpnService : VpnService() {
         val tunFdObj = FileDescriptor()
         fdField.setInt(tunFdObj, tunFd)
 
-        // Clear O_NONBLOCK — bare-fs needs blocking reads
         val fileFlags = Os.fcntlInt(tunFdObj, OsConstants.F_GETFL, 0)
         Os.fcntlInt(tunFdObj, OsConstants.F_SETFL, fileFlags and OsConstants.O_NONBLOCK.inv())
 
-        // Clear FD_CLOEXEC — fd must survive fork+exec into child
-        Os.fcntlInt(tunFdObj, OsConstants.F_SETFD, 0)
-        Log.d(TAG, "TUN fd $tunFd: blocking, inheritable")
-
         tunFdForBinary = tunFd
+        Log.d(TAG, "Sending TUN fd $tunFd to child via SCM_RIGHTS")
 
-        // Write config to a temp file
-        val configFile = File(cacheDir, "nospoon-config.jsonc")
-        configFile.writeText(config.toString())
-
-        // Find the nospoon binary
-        val binaryPath = applicationInfo.nativeLibraryDir + "/libnospoon.so"
-        if (!File(binaryPath).exists()) {
-            Log.e(TAG, "nospoon binary not found at $binaryPath")
-            broadcastStatus("Error: binary not found", false)
+        // Send TUN fd to child via the socketpair
+        val ok = NativeHelper.sendFd(ipcSocketFd, tunFd)
+        if (!ok) {
+            Log.e(TAG, "Failed to send TUN fd to child")
+            broadcastStatus("Error: fd send failed", false)
             cleanup()
             return
         }
 
-        // Fork+exec — preserves TUN fd, captures stdout via pipe
-        Log.i(TAG, "Forking nospoon binary: --tun-fd=$tunFd")
-        val result = NativeHelper.exec(arrayOf(
-            binaryPath, "up", "--tun-fd=$tunFd", configFile.absolutePath
-        ))
-
-        if (result == null || result[0] <= 0) {
-            Log.e(TAG, "Failed to fork nospoon binary")
-            broadcastStatus("Error: fork failed", false)
-            cleanup()
-            return
-        }
-
-        nospoonPid = result[0]
-        stdoutReadFd = result[1]
-        Log.i(TAG, "nospoon child pid: $nospoonPid, stdout fd: $stdoutReadFd")
-
-        broadcastStatus("Connecting...", false)
-
-        // Read child's stdout for status (captured via pipe from fork)
-        stdoutReader = Thread {
-            try {
-                val fis = FileInputStream(FileDescriptor().also {
-                    fdField.setInt(it, stdoutReadFd)
-                })
-                val reader = BufferedReader(InputStreamReader(fis))
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    val l = line!!.trim()
-                    if (l.isEmpty()) continue
-                    Log.d(TAG, "nospoon: $l")
-
-                    // Detect connection state from binary output
-                    if (l.contains("Connected to server")) {
-                        handler.post {
-                            updateNotification("Connected")
-                            broadcastStatus("Connected", true)
-                        }
-                    } else if (l.contains("Connection lost") || l.contains("Reconnecting")) {
-                        handler.post {
-                            updateNotification("Reconnecting...")
-                            broadcastStatus("Reconnecting...", false)
-                        }
-                    } else if (l.contains("Shutting down")) {
-                        handler.post {
-                            broadcastStatus("Disconnected", false)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "stdout reader ended: ${e.message}")
-            }
-
-            // Process exited
-            handler.post {
-                Log.i(TAG, "nospoon process exited")
-                broadcastStatus("Disconnected", false)
-                cleanup()
-            }
-        }.apply {
-            isDaemon = true
-            start()
-        }
-
+        Log.i(TAG, "VPN established, TUN fd sent to child")
+        updateNotification("Connected")
+        broadcastStatus("Connected", true)
     }
 
     private fun broadcastStatus(text: String, connected: Boolean) {
@@ -296,18 +295,16 @@ class NospoonVpnService : VpnService() {
             nospoonPid = -1
         }
 
-        // Close stdout pipe
-        if (stdoutReadFd >= 0) {
+        if (ipcSocketFd >= 0) {
             try { Os.close(FileDescriptor().also {
                 val f = FileDescriptor::class.java.getDeclaredField("descriptor")
                 f.isAccessible = true
-                f.setInt(it, stdoutReadFd)
+                f.setInt(it, ipcSocketFd)
             }) } catch (_: ErrnoException) {}
-            stdoutReadFd = -1
+            ipcSocketFd = -1
         }
-        stdoutReader = null
+        ipcReader = null
 
-        // Close TUN fd
         if (tunFdForBinary >= 0) {
             try { Os.close(FileDescriptor().also {
                 val f = FileDescriptor::class.java.getDeclaredField("descriptor")

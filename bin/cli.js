@@ -118,6 +118,31 @@ async function main () {
       console.log(`Using existing TUN fd ${fd}` + (isUtun ? ' (utun mode)' : ''))
     }
 
+    // --fd-socket=N: two-phase mode for Android.
+    // Connect DHT first (no VPN routes active), signal parent via IPC,
+    // then receive TUN fd via SCM_RIGHTS after VPN is established.
+    const fdSocketStr = getFlag('fd-socket')
+    if (fdSocketStr && !tunFdStr) {
+      const fdSocket = parseInt(fdSocketStr, 10)
+      if (isNaN(fdSocket) || fdSocket < 0) {
+        console.error('Error: --fd-socket must be a non-negative integer')
+        exit(1)
+      }
+      const binding = require('../lib/binding')
+
+      // Override startClient to use two-phase: connect DHT, then receive TUN fd
+      config.onConnected = function () {
+        // Tell parent we're connected — parent will establish VPN and send TUN fd
+        binding.writeIpc(fdSocket, 'CONNECTED')
+        console.log('Waiting for TUN fd from parent...')
+
+        // Block until parent sends the TUN fd via SCM_RIGHTS
+        const tunFd = binding.recvFd(fdSocket)
+        console.log('Received TUN fd ' + tunFd + ' from parent')
+        return createTunFromFd(tunFd, 'tun0', { mtu: config.mtu })
+      }
+    }
+
     if (config.mode === 'server') {
       await startServer(config)
     } else {

@@ -5,11 +5,15 @@ object NativeHelper {
         System.loadLibrary("nospoon_exec")
     }
 
-    // Fork+exec preserving all fds (including TUN fd).
-    // Returns int[2] = { pid, stdout_read_fd }, or null on error.
-    // Child's stdout is captured via pipe. stderr goes to logcat.
+    // Fork+exec preserving all fds. Creates a Unix socketpair for IPC.
+    // Returns int[3] = { pid, ipc_parent_fd, child_ipc_fd_number }
     @JvmStatic
     external fun exec(args: Array<String>): IntArray?
+
+    // Send a file descriptor over a Unix socket (SCM_RIGHTS).
+    // Used to pass TUN fd to the child process after VPN is established.
+    @JvmStatic
+    external fun sendFd(socketFd: Int, fdToSend: Int): Boolean
 
     // Send SIGTERM to child process.
     @JvmStatic
