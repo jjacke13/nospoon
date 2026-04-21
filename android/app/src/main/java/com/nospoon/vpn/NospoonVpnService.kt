@@ -227,10 +227,10 @@ class NospoonVpnService : VpnService() {
             .setSession("nospoon")
             .setMtu(mtu)
             .addAddress(ip, prefix)
-            .addDisallowedApplication(packageName)
 
         if (fullTunnel) {
             builder.addRoute("0.0.0.0", 0)
+            builder.addDisallowedApplication(packageName)
             builder.addDnsServer("1.1.1.1")
             builder.addDnsServer("8.8.8.8")
             Log.d(TAG, "Full tunnel mode")
