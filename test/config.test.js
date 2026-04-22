@@ -36,53 +36,82 @@ const VALID_SEED = 'ab'.repeat(32)
 const VALID_KEY = 'cd'.repeat(32)
 const VALID_KEY2 = 'ef'.repeat(32)
 
-// ── mode ────────────────────────────────────────────────────────────
+// ── topic ──────────────────────────────────────────────────────────
 
-describe('loadConfig — mode', function () {
-  it('accepts "server"', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
-    assert.equal(cfg.mode, 'server')
+describe('loadConfig — topic', function () {
+  it('accepts valid topic', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'my-group' }))
+    assert.equal(cfg.topic, 'my-group')
   })
 
-  it('accepts "client" with server key', function () {
-    const cfg = loadConfig(writeConfig('c.json', { mode: 'client', server: VALID_KEY }))
-    assert.equal(cfg.mode, 'client')
+  it('trims whitespace', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: '  my-group  ' }))
+    assert.equal(cfg.topic, 'my-group')
   })
 
-  it('rejects missing mode', function () {
+  it('rejects missing topic', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('no-mode.json', {}))
-    }, /mode/)
+      loadConfig(writeConfig('no.json', {}))
+    }, /topic/)
   })
 
-  it('rejects invalid mode', function () {
+  it('rejects empty string topic', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad-mode.json', { mode: 'relay' }))
-    }, /mode/)
+      loadConfig(writeConfig('empty.json', { topic: '' }))
+    }, /topic/)
+  })
+
+  it('rejects whitespace-only topic', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('ws.json', { topic: '   ' }))
+    }, /topic/)
+  })
+
+  it('rejects non-string topic', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('num.json', { topic: 123 }))
+    }, /topic/)
+  })
+})
+
+// ── migration errors ───────────────────────────────────────────────
+
+describe('loadConfig — old format migration', function () {
+  it('rejects "mode" field with migration message', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('old.json', { mode: 'server' }))
+    }, /no longer supported.*topic/)
+  })
+
+  it('rejects "server" field with migration message', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('old.json', { topic: 'x', server: VALID_KEY }))
+    }, /no longer supported/)
+  })
+
+  it('rejects "fullTunnel" field with migration message', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('old.json', { topic: 'x', fullTunnel: true }))
+    }, /no longer supported.*exitNode/)
   })
 })
 
 // ── ip ──────────────────────────────────────────────────────────────
 
 describe('loadConfig — ip', function () {
-  it('defaults to 10.0.0.1/24 for server', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+  it('defaults to 10.0.0.1/24', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.ip, '10.0.0.1/24')
   })
 
-  it('defaults to 10.0.0.2/24 for client', function () {
-    const cfg = loadConfig(writeConfig('c.json', { mode: 'client', server: VALID_KEY }))
-    assert.equal(cfg.ip, '10.0.0.2/24')
-  })
-
   it('accepts custom ip', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', ip: '172.16.0.1/16' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', ip: '172.16.0.1/16' }))
     assert.equal(cfg.ip, '172.16.0.1/16')
   })
 
   it('rejects invalid ip', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', ip: 'not-cidr' }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', ip: 'not-cidr' }))
     }, /ip/)
   })
 })
@@ -91,18 +120,18 @@ describe('loadConfig — ip', function () {
 
 describe('loadConfig — ipv6', function () {
   it('omitted by default', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.ipv6, undefined)
   })
 
   it('accepts valid IPv6 CIDR', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', ipv6: 'fd00::1/64' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', ipv6: 'fd00::1/64' }))
     assert.equal(cfg.ipv6, 'fd00::1/64')
   })
 
   it('rejects invalid IPv6', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', ipv6: 'not-ipv6' }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', ipv6: 'not-ipv6' }))
     }, /ipv6/)
   })
 })
@@ -111,50 +140,50 @@ describe('loadConfig — ipv6', function () {
 
 describe('loadConfig — seed', function () {
   it('accepts inline seed', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', seed: VALID_SEED }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', seed: VALID_SEED }))
     assert.equal(cfg.seed, VALID_SEED)
   })
 
   it('accepts seedFile', function () {
     const seedPath = writeSeedFile(VALID_SEED)
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', seedFile: seedPath }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', seedFile: seedPath }))
     assert.equal(cfg.seed, VALID_SEED)
   })
 
   it('trims whitespace from seedFile', function () {
     const seedPath = writeSeedFile('  ' + VALID_SEED + '\n')
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', seedFile: seedPath }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', seedFile: seedPath }))
     assert.equal(cfg.seed, VALID_SEED)
   })
 
   it('rejects both seed and seedFile', function () {
     const seedPath = writeSeedFile(VALID_SEED)
     assert.throws(function () {
-      loadConfig(writeConfig('both.json', { mode: 'server', seed: VALID_SEED, seedFile: seedPath }))
+      loadConfig(writeConfig('both.json', { topic: 'test', seed: VALID_SEED, seedFile: seedPath }))
     }, /mutually exclusive/)
   })
 
   it('rejects invalid seed hex', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', seed: 'tooshort' }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', seed: 'tooshort' }))
     }, /seed/)
   })
 
   it('rejects missing seedFile', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', seedFile: '/tmp/nonexistent-nospoon-seed' }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', seedFile: '/tmp/nonexistent-nospoon-seed' }))
     }, /Cannot read seed file/)
   })
 
   it('rejects seedFile with invalid content', function () {
     const seedPath = writeSeedFile('not-hex-at-all')
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', seedFile: seedPath }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', seedFile: seedPath }))
     }, /seedFile content/)
   })
 
-  it('omitted seed is undefined (random key generated at runtime)', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+  it('omitted seed is undefined (persistent identity used at runtime)', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.seed, undefined)
   })
 })
@@ -163,79 +192,96 @@ describe('loadConfig — seed', function () {
 
 describe('loadConfig — mtu', function () {
   it('defaults to 1400', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.mtu, 1400)
   })
 
   it('accepts custom mtu', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', mtu: 1200 }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', mtu: 1200 }))
     assert.equal(cfg.mtu, 1200)
   })
 
   it('rejects mtu below 576', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', mtu: 500 }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', mtu: 500 }))
     }, /MTU/)
   })
 
   it('rejects mtu above 65535', function () {
     assert.throws(function () {
-      loadConfig(writeConfig('bad.json', { mode: 'server', mtu: 70000 }))
+      loadConfig(writeConfig('bad.json', { topic: 'test', mtu: 70000 }))
     }, /MTU/)
   })
 })
 
-// ── fullTunnel ──────────────────────────────────────────────────────
+// ── exitNode / exitVia ──────────────────────────────────────────────
 
-describe('loadConfig — fullTunnel', function () {
-  it('defaults to false', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
-    assert.equal(cfg.fullTunnel, false)
+describe('loadConfig — exitNode / exitVia', function () {
+  it('exitNode defaults to false', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
+    assert.equal(cfg.exitNode, false)
   })
 
-  it('accepts true', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', fullTunnel: true }))
-    assert.equal(cfg.fullTunnel, true)
+  it('accepts exitNode true', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', exitNode: true }))
+    assert.equal(cfg.exitNode, true)
   })
 
-  it('non-boolean values are treated as false', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', fullTunnel: 'yes' }))
-    assert.equal(cfg.fullTunnel, false)
+  it('accepts exitVia within subnet', function () {
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', ip: '10.0.0.2/24', exitVia: '10.0.0.1' }))
+    assert.equal(cfg.exitVia, '10.0.0.1')
+  })
+
+  it('rejects exitVia outside subnet', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('bad.json', { topic: 'test', ip: '10.0.0.2/24', exitVia: '192.168.1.1' }))
+    }, /not in the configured subnet/)
+  })
+
+  it('rejects exitVia pointing to own IP', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('bad.json', { topic: 'test', ip: '10.0.0.1/24', exitVia: '10.0.0.1' }))
+    }, /own IP/)
+  })
+
+  it('rejects exitVia with invalid IP', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('bad.json', { topic: 'test', exitVia: 'not-an-ip' }))
+    }, /exitVia/)
+  })
+
+  it('rejects exitNode + exitVia together', function () {
+    assert.throws(function () {
+      loadConfig(writeConfig('bad.json', { topic: 'test', ip: '10.0.0.2/24', exitNode: true, exitVia: '10.0.0.1' }))
+    }, /mutually exclusive/)
   })
 })
 
-// ── server-only: outInterface ───────────────────────────────────────
+// ── outInterface ───────────────────────────────────────────────────
 
-describe('loadConfig — outInterface (server only)', function () {
+describe('loadConfig — outInterface', function () {
   it('omitted by default', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.outInterface, undefined)
   })
 
   it('accepts outInterface', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server', outInterface: 'eth0' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test', outInterface: 'eth0' }))
     assert.equal(cfg.outInterface, 'eth0')
-  })
-
-  it('ignored in client mode', function () {
-    const cfg = loadConfig(writeConfig('c.json', {
-      mode: 'client', server: VALID_KEY, outInterface: 'eth0'
-    }))
-    assert.equal(cfg.outInterface, undefined)
   })
 })
 
-// ── server-only: peers ──────────────────────────────────────────────
+// ── peers ──────────────────────────────────────────────────────────
 
-describe('loadConfig — peers (server only)', function () {
+describe('loadConfig — peers', function () {
   it('open mode when peers omitted', function () {
-    const cfg = loadConfig(writeConfig('s.json', { mode: 'server' }))
+    const cfg = loadConfig(writeConfig('t.json', { topic: 'test' }))
     assert.equal(cfg.peers, undefined)
   })
 
   it('loads valid peers as Map', function () {
-    const cfg = loadConfig(writeConfig('s.json', {
-      mode: 'server',
+    const cfg = loadConfig(writeConfig('t.json', {
+      topic: 'test',
       peers: { [VALID_KEY]: '10.0.0.2', [VALID_KEY2]: '10.0.0.3' }
     }))
     assert.ok(cfg.peers instanceof Map)
@@ -247,7 +293,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects duplicate IP in peers', function () {
     assert.throws(function () {
       loadConfig(writeConfig('dup.json', {
-        mode: 'server',
+        topic: 'test',
         peers: { [VALID_KEY]: '10.0.0.2', [VALID_KEY2]: '10.0.0.2' }
       }))
     }, /Duplicate/)
@@ -256,27 +302,27 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects peer IP outside subnet', function () {
     assert.throws(function () {
       loadConfig(writeConfig('outside.json', {
-        mode: 'server',
+        topic: 'test',
         ip: '10.0.0.1/24',
         peers: { [VALID_KEY]: '192.168.1.5' }
       }))
-    }, /not in server subnet/)
+    }, /not in subnet/)
   })
 
-  it('rejects peer with server own IP', function () {
+  it('rejects peer with own IP', function () {
     assert.throws(function () {
       loadConfig(writeConfig('self.json', {
-        mode: 'server',
+        topic: 'test',
         ip: '10.0.0.1/24',
         peers: { [VALID_KEY]: '10.0.0.1' }
       }))
-    }, /conflicts with server/)
+    }, /conflicts with own/)
   })
 
   it('rejects broadcast address', function () {
     assert.throws(function () {
       loadConfig(writeConfig('bcast.json', {
-        mode: 'server',
+        topic: 'test',
         ip: '10.0.0.1/24',
         peers: { [VALID_KEY]: '10.0.0.255' }
       }))
@@ -286,7 +332,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects network address', function () {
     assert.throws(function () {
       loadConfig(writeConfig('net.json', {
-        mode: 'server',
+        topic: 'test',
         ip: '10.0.0.1/24',
         peers: { [VALID_KEY]: '10.0.0.0' }
       }))
@@ -296,7 +342,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects loopback address', function () {
     assert.throws(function () {
       loadConfig(writeConfig('lo.json', {
-        mode: 'server',
+        topic: 'test',
         peers: { [VALID_KEY]: '127.0.0.1' }
       }))
     }, /loopback/)
@@ -305,7 +351,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects 0.0.0.0', function () {
     assert.throws(function () {
       loadConfig(writeConfig('zero.json', {
-        mode: 'server',
+        topic: 'test',
         peers: { [VALID_KEY]: '0.0.0.0' }
       }))
     }, /0\.0\.0\.0/)
@@ -314,7 +360,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects invalid peer key', function () {
     assert.throws(function () {
       loadConfig(writeConfig('badkey.json', {
-        mode: 'server',
+        topic: 'test',
         peers: { 'not-a-hex-key': '10.0.0.2' }
       }))
     }, /peer key/)
@@ -323,7 +369,7 @@ describe('loadConfig — peers (server only)', function () {
   it('rejects invalid peer IP', function () {
     assert.throws(function () {
       loadConfig(writeConfig('badip.json', {
-        mode: 'server',
+        topic: 'test',
         peers: { [VALID_KEY]: 'not-an-ip' }
       }))
     }, /Invalid IP/)
@@ -331,7 +377,7 @@ describe('loadConfig — peers (server only)', function () {
 
   it('accepts IPv6 peer address', function () {
     const cfg = loadConfig(writeConfig('v6.json', {
-      mode: 'server',
+      topic: 'test',
       peers: { [VALID_KEY]: 'fd00::2' }
     }))
     assert.equal(cfg.peers.get(VALID_KEY), 'fd00::2')
@@ -339,66 +385,19 @@ describe('loadConfig — peers (server only)', function () {
 
   it('accepts peer at top of range', function () {
     const cfg = loadConfig(writeConfig('top.json', {
-      mode: 'server',
+      topic: 'test',
       ip: '10.0.0.1/24',
       peers: { [VALID_KEY]: '10.0.0.254' }
     }))
     assert.equal(cfg.peers.get(VALID_KEY), '10.0.0.254')
   })
 
-  it('works with different subnet', function () {
-    const cfg = loadConfig(writeConfig('other.json', {
-      mode: 'server',
-      ip: '172.16.5.1/24',
-      peers: { [VALID_KEY]: '172.16.5.10' }
-    }))
-    assert.equal(cfg.peers.get(VALID_KEY), '172.16.5.10')
-  })
-
-  it('rejects peers as string', function () {
-    assert.throws(function () {
-      loadConfig(writeConfig('str.json', {
-        mode: 'server',
-        peers: 'not-an-object'
-      }))
-    }, /peers/)
-  })
-
-  it('treats peers as null like open mode', function () {
-    const cfg = loadConfig(writeConfig('null.json', {
-      mode: 'server',
-      peers: null
-    }))
-    assert.equal(cfg.peers, undefined)
-  })
-
   it('skips empty peers object (open mode)', function () {
     const cfg = loadConfig(writeConfig('empty.json', {
-      mode: 'server',
+      topic: 'test',
       peers: {}
     }))
     assert.equal(cfg.peers, undefined)
-  })
-})
-
-// ── client-only: server key ─────────────────────────────────────────
-
-describe('loadConfig — server key (client only)', function () {
-  it('accepts valid server key', function () {
-    const cfg = loadConfig(writeConfig('c.json', { mode: 'client', server: VALID_KEY }))
-    assert.equal(cfg.server, VALID_KEY)
-  })
-
-  it('rejects missing server key', function () {
-    assert.throws(function () {
-      loadConfig(writeConfig('no-key.json', { mode: 'client' }))
-    }, /server/)
-  })
-
-  it('rejects invalid server key', function () {
-    assert.throws(function () {
-      loadConfig(writeConfig('bad-key.json', { mode: 'client', server: 'short' }))
-    }, /server/)
   })
 })
 
@@ -408,15 +407,15 @@ describe('loadConfig — JSONC comments', function () {
   it('strips line comments', function () {
     const jsonc = `{
       // this is a comment
-      "mode": "server"
+      "topic": "test"
     }`
     const cfg = loadConfig(writeConfig('comments.jsonc', jsonc))
-    assert.equal(cfg.mode, 'server')
+    assert.equal(cfg.topic, 'test')
   })
 
   it('does not strip // inside strings', function () {
     const jsonc = `{
-      "mode": "server",
+      "topic": "test",
       "outInterface": "eth0"
     }`
     const cfg = loadConfig(writeConfig('str.jsonc', jsonc))
@@ -425,11 +424,11 @@ describe('loadConfig — JSONC comments', function () {
 
   it('handles inline comments after values', function () {
     const jsonc = `{
-      "mode": "server", // the mode
+      "topic": "test", // the topic
       "mtu": 1200 // custom mtu
     }`
     const cfg = loadConfig(writeConfig('inline.jsonc', jsonc))
-    assert.equal(cfg.mode, 'server')
+    assert.equal(cfg.topic, 'test')
     assert.equal(cfg.mtu, 1200)
   })
 })
@@ -452,53 +451,42 @@ describe('loadConfig — file errors', function () {
   })
 })
 
-// ── full server config ──────────────────────────────────────────────
+// ── full config ────────────────────────────────────────────────────
 
-describe('loadConfig — full server config', function () {
+describe('loadConfig — full config', function () {
   it('parses all fields together', function () {
     const seedPath = writeSeedFile(VALID_SEED)
     const cfg = loadConfig(writeConfig('full.json', {
-      mode: 'server',
+      topic: 'my-mesh',
       ip: '172.16.0.1/16',
       ipv6: 'fd00::1/64',
       seedFile: seedPath,
       mtu: 1200,
-      fullTunnel: true,
+      exitNode: true,
       outInterface: 'eth0',
       peers: { [VALID_KEY]: '172.16.0.2' }
     }))
-    assert.equal(cfg.mode, 'server')
+    assert.equal(cfg.topic, 'my-mesh')
     assert.equal(cfg.ip, '172.16.0.1/16')
     assert.equal(cfg.ipv6, 'fd00::1/64')
     assert.equal(cfg.seed, VALID_SEED)
     assert.equal(cfg.mtu, 1200)
-    assert.equal(cfg.fullTunnel, true)
+    assert.equal(cfg.exitNode, true)
     assert.equal(cfg.outInterface, 'eth0')
     assert.equal(cfg.peers.get(VALID_KEY), '172.16.0.2')
   })
-})
 
-// ── full client config ──────────────────────────────────────────────
-
-describe('loadConfig — full client config', function () {
-  it('parses all fields together', function () {
-    const cfg = loadConfig(writeConfig('full.json', {
-      mode: 'client',
-      server: VALID_KEY,
+  it('parses exit-via config', function () {
+    const cfg = loadConfig(writeConfig('exit.json', {
+      topic: 'my-mesh',
       ip: '172.16.0.2/16',
-      ipv6: 'fd00::2/64',
-      seed: VALID_SEED,
-      mtu: 1200,
-      fullTunnel: true
+      exitVia: '172.16.0.1',
+      seed: VALID_SEED
     }))
-    assert.equal(cfg.mode, 'client')
-    assert.equal(cfg.server, VALID_KEY)
+    assert.equal(cfg.topic, 'my-mesh')
     assert.equal(cfg.ip, '172.16.0.2/16')
-    assert.equal(cfg.ipv6, 'fd00::2/64')
+    assert.equal(cfg.exitVia, '172.16.0.1')
+    assert.equal(cfg.exitNode, false)
     assert.equal(cfg.seed, VALID_SEED)
-    assert.equal(cfg.mtu, 1200)
-    assert.equal(cfg.fullTunnel, true)
-    assert.equal(cfg.outInterface, undefined)
-    assert.equal(cfg.peers, undefined)
   })
 })

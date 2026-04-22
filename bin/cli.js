@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-const { isBare, path, childProcess, platform, argv, env, exit, randomBytes } = require('../lib/compat')
+const { isBare, path, childProcess, platform, argv, env, exit } = require('../lib/compat')
 const { execFileSync } = childProcess
 const { loadConfig } = require('../lib/config')
-const { startServer } = require('../lib/server')
-const { startClient } = require('../lib/client')
+const { startSwarm } = require('../lib/swarm')
 const { createTunFromFd } = require('../lib/tun-fd')
 
 // Node.js: argv = ['node', 'cli.js', ...args] → slice(2)
@@ -26,11 +25,11 @@ function hasFlag (name) {
 
 function printUsage () {
   console.log(`
-nospoon - P2P VPN over HyperDHT
+nospoon - P2P mesh VPN over Hyperswarm
 
 Usage:
   nospoon up [options] [config]   Start VPN (default config: /etc/nospoon/config.jsonc)
-  nospoon genkey                  Generate a seed + public key pair
+  nospoon genkey                  Show persistent identity (or generate with --new)
 
 Options:
   --tun-fd=N       Use an existing TUN file descriptor instead of creating one.
@@ -40,28 +39,33 @@ Options:
                    utun AF header. Not needed on Linux or Android.
 
 Config file format (JSONC):
-  Server:
+  Minimal (open mode):
     {
-      "mode": "server",
-      "ip": "10.0.0.1/24",       // TUN address (default: 10.0.0.1/24)
-      "seedFile": "/path/seed",   // or "seed": "64-hex-chars"
-      "mtu": 1400,                // default: 1400
-      "keepalive": 25000,         // NAT keepalive in ms (default: 25000)
-      "fullTunnel": true,         // enable NAT for clients
-      "outInterface": "eth0",     // NAT interface (default: auto)
-      "peers": {                  // omit for open mode
-        "<client-pubkey>": "10.0.0.2"
+      "topic": "my-secret-group",
+      "ip": "10.0.0.1/24"
+    }
+
+  Authenticated (stable IPs):
+    {
+      "topic": "my-group",
+      "ip": "10.0.0.1/24",
+      "peers": {
+        "<peer-pubkey-64hex>": "10.0.0.2"
       }
     }
 
-  Client:
+  Exit node (offers internet NAT):
     {
-      "mode": "client",
-      "server": "<server-pubkey-64hex>",
-      "ip": "10.0.0.2/24",       // TUN address (default: 10.0.0.2/24)
-      "seed": "64-hex-chars",     // for authenticated mode
-      "keepalive": 25000,         // NAT keepalive in ms (default: 25000)
-      "fullTunnel": true          // route all traffic through VPN
+      "topic": "my-group",
+      "ip": "10.0.0.1/24",
+      "exitNode": true
+    }
+
+  Exit user (routes internet through exit peer):
+    {
+      "topic": "my-group",
+      "ip": "10.0.0.2/24",
+      "exitVia": "10.0.0.1"
     }
 `)
 }
@@ -74,9 +78,20 @@ async function main () {
 
   if (command === 'genkey') {
     const HyperDHT = require('hyperdht')
-    const seed = randomBytes(32)
-    const keyPair = HyperDHT.keyPair(seed)
-    console.log('Seed (keep secret):  ', seed.toString('hex'))
+    const { loadOrCreateSeed } = require('../lib/identity')
+
+    let seedHex
+    if (hasFlag('new')) {
+      const { randomBytes } = require('../lib/compat')
+      seedHex = randomBytes(32).toString('hex')
+      console.log('Generated new seed (not saved):')
+    } else {
+      seedHex = loadOrCreateSeed()
+      console.log('Persistent identity (~/.nospoon/identity.json):')
+    }
+
+    const keyPair = HyperDHT.keyPair(Buffer.from(seedHex, 'hex'))
+    console.log('Seed (keep secret):  ', seedHex)
     console.log('Public key (share):  ', keyPair.publicKey.toString('hex'))
     exit(0)
   }
@@ -130,12 +145,10 @@ async function main () {
       }
       const binding = require('../lib/binding')
 
-      // IPC: send status updates to parent over the socketpair
       config.ipcWrite = function (msg) {
         try { binding.writeIpc(fdSocket, msg) } catch (e) {}
       }
 
-      // Two-phase: connect DHT first, then receive TUN fd from parent
       config.onConnected = function () {
         binding.writeIpc(fdSocket, 'CONNECTED')
         console.log('Waiting for TUN fd from parent...')
@@ -145,11 +158,7 @@ async function main () {
       }
     }
 
-    if (config.mode === 'server') {
-      await startServer(config)
-    } else {
-      await startClient(config)
-    }
+    await startSwarm(config)
   } else {
     console.error(`Unknown command: ${command}`)
     printUsage()
