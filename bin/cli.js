@@ -78,21 +78,11 @@ async function main () {
 
   if (command === 'genkey') {
     const HyperDHT = require('hyperdht')
-    const { loadOrCreateSeed } = require('../lib/identity')
-
-    let seedHex
-    if (hasFlag('new')) {
-      const { randomBytes } = require('../lib/compat')
-      seedHex = randomBytes(32).toString('hex')
-      console.log('Generated new seed (not saved):')
-    } else {
-      seedHex = loadOrCreateSeed()
-      console.log('Persistent identity (~/.nospoon/identity.json):')
-    }
-
+    const { randomBytes } = require('../lib/compat')
+    const seedHex = randomBytes(32).toString('hex')
     const keyPair = HyperDHT.keyPair(Buffer.from(seedHex, 'hex'))
     console.log('Seed (keep secret):  ', seedHex)
-    console.log('Public key (share):  ', keyPair.publicKey.toString('hex'))
+    console.log('Public key (for peers map):', keyPair.publicKey.toString('hex'))
     exit(0)
   }
 
