@@ -159,16 +159,15 @@ jobs:
           sudo apt-get update || true
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
 
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        run: choco upgrade llvm -y
-
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          choco install nasm -y
-          echo "/c/Program Files/NASM" >> $GITHUB_PATH
+          $url = "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile nasm.zip
+          Expand-Archive nasm.zip -DestinationPath C:\nasm
+          $nasmDir = (Get-ChildItem C:\nasm -Directory)[0].FullName
+          echo "$nasmDir" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Install dependencies
         run: npm install
