@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [nospoon-bare]
+    branches: [nospoon-swarm]
   pull_request:
-    branches: [nospoon-bare]
+    branches: [nospoon-swarm]
 
 jobs:
   # Build native addon (.node + .bare) on each platform
@@ -30,8 +30,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: nospoon-bare
 
       - uses: actions/setup-node@v4
         with:
@@ -80,8 +78,6 @@ jobs:
     needs: addon
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: nospoon-bare
 
       - uses: actions/setup-node@v4
         with:
@@ -139,8 +135,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: nospoon-bare
 
       - uses: actions/setup-node@v4
         with:
@@ -231,8 +225,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: nospoon-bare
 
       - uses: actions/setup-node@v4
         with:
@@ -256,14 +248,24 @@ jobs:
       - name: Test genkey
         run: node bin/cli.js genkey
 
-      - name: Test config loading
+      - name: Test config validation (rejects old format)
         shell: bash
         run: |
-          echo '{"mode":"server","ip":"10.0.0.1/24"}' > smoke-test.jsonc
+          echo '{"mode":"server"}' > old-config.jsonc
           node -e "
             const { loadConfig } = require('./lib/config');
-            const c = loadConfig('./smoke-test.jsonc');
-            console.log('Config OK:', c.mode, c.ip);
+            try { loadConfig('./old-config.jsonc'); process.exit(1); }
+            catch (e) { console.log('Migration error OK:', e.message); }
+          "
+
+      - name: Test config validation (rejects missing seed)
+        shell: bash
+        run: |
+          echo '{"topic":"test"}' > no-seed.jsonc
+          node -e "
+            const { loadConfig } = require('./lib/config');
+            try { loadConfig('./no-seed.jsonc'); process.exit(1); }
+            catch (e) { console.log('Seed required OK:', e.message); }
           "
 
   # Smoke test: verify standalone binary works on each platform
@@ -285,8 +287,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: nospoon-bare
 
       - name: Download binary
         uses: actions/download-artifact@v4
@@ -316,14 +316,14 @@ jobs:
             dist/bin/nospoon genkey
           fi
 
-      - name: Test invalid config (verify config parsing works)
+      - name: Test config validation (rejects old format)
         shell: bash
         run: |
-          echo '{"mode":"invalid"}' > bad.jsonc
+          echo '{"mode":"server"}' > bad.jsonc
           if [ "${{ runner.os }}" = "Windows" ]; then
-            dist/bin/nospoon.exe up bad.jsonc 2>&1 && exit 1 || echo "Config validation works (rejected invalid mode)"
+            dist/bin/nospoon.exe up bad.jsonc 2>&1 && exit 1 || echo "Config validation works"
           else
-            dist/bin/nospoon up bad.jsonc 2>&1 && exit 1 || echo "Config validation works (rejected invalid mode)"
+            dist/bin/nospoon up bad.jsonc 2>&1 && exit 1 || echo "Config validation works"
           fi
 
   # Collect all prebuilds and binaries, create release
@@ -334,6 +334,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all prebuilds
         uses: actions/download-artifact@v4
         with:
@@ -405,18 +407,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete v0.5.0-bare-test --yes --cleanup-tag --repo ${{ github.repository }} 2>/dev/null || true
-          gh release create v0.5.0-bare-test \
+          gh release delete v0.6.0-swarm-test --yes --cleanup-tag --repo ${{ github.repository }} 2>/dev/null || true
+          gh release create v0.6.0-swarm-test \
             --repo ${{ github.repository }} \
-            --target nospoon-bare \
-            --title "v0.5.0-bare-test — Bare runtime support (test release)" \
+            --target nospoon-swarm \
+            --title "v0.6.0-swarm-test — Swarm mesh VPN (test release)" \
             --notes "$(cat <<'EOF'
-          Test release from the nospoon-bare branch. **Not for production.**
+          Test release from the nospoon-swarm branch. **Not for production.**
+
+          ## What's new
+          Full mesh VPN — all peers are equal, discover each other via topic,
+          connect directly (pairwise). Any peer can be an exit node.
+
+          ## Config format
+          ```jsonc
+          {
+            "topic": "my-group",
+            "seed": "<your-64hex-seed>",
+            "peers": {
+              "<pubkey-A>": "10.0.0.1",
+              "<pubkey-B>": "10.0.0.2"
+            }
+          }
+          ```
 
           ## Standalone binaries
-          Single-file executables with embedded Bare runtime + all addons.
-          No Node.js or npm needed — just download, extract, and run.
-
           | File | Platform |
           |------|----------|
           | nospoon-linux-x64.tar.gz | Linux x86_64 |
@@ -424,15 +439,14 @@ jobs:
           | nospoon-darwin-arm64.tar.gz | macOS Apple Silicon |
           | nospoon-darwin-x64.tar.gz | macOS Intel |
           | nospoon-win32-x64.tar.gz | Windows x64 |
-          | nospoon-android-arm64.tar.gz | Android ARM64 (embed as libnospoon.so) |
-
-          ## Native addon prebuilds
-          For use with `npm install nospoon` (Node.js or Bare runtime).
+          | nospoon-android-arm64.tar.gz | Android ARM64 |
 
           ## Usage
           ```bash
-          tar xzf nospoon-linux-x64.tar.gz
-          sudo ./bin/nospoon up config.jsonc
+          # Generate identity
+          nospoon genkey
+          # Share public key, add all peers to config, then:
+          sudo nospoon up config.jsonc
           ```
           EOF
           )" \
