@@ -161,7 +161,7 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
-        run: choco install llvm --version 20.1.8 --force
+        run: choco upgrade llvm -y
 
       - name: Install NASM (Windows)
         if: runner.os == 'Windows'
