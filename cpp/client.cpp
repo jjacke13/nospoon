@@ -12,6 +12,7 @@
 #include <hyperdht/secret_stream.hpp>
 
 #include <algorithm>
+#include <csignal>
 #include <cstdio>
 #include <memory>
 
@@ -56,6 +57,17 @@ void keepalive_tick(uv_timer_t* handle) {
         auto ka = frame_keepalive();
         ctx->duplex->write(ka.data(), ka.size(), nullptr);
     }
+}
+
+// SIGINT/SIGTERM watcher: flip ctx.running so the main loop exits naturally
+// and the cleanup block runs (full-tunnel teardown, DHT destroy, TUN close).
+// Without this, Ctrl+C terminated the process immediately and full-tunnel
+// mode left stale iptables rules / split routes / DNS overrides.
+void on_signal(uv_signal_t* handle, int signum) {
+    auto* ctx = static_cast<ClientCtx*>(handle->data);
+    fprintf(stderr, "\n  Received signal %d — shutting down...\n", signum);
+    ctx->running = false;
+    uv_signal_stop(handle);
 }
 
 // After this many consecutive failures while full-tunnel is active, drop
@@ -246,6 +258,15 @@ int run_client(const Config& config) {
     ctx.keepalive_timer.data = &ctx;
     uv_timer_init(&loop, &ctx.reconnect_timer);
 
+    // Graceful shutdown on SIGINT (Ctrl+C) and SIGTERM (systemd stop).
+    uv_signal_t sigint{}, sigterm{};
+    uv_signal_init(&loop, &sigint);
+    uv_signal_init(&loop, &sigterm);
+    sigint.data  = &ctx;
+    sigterm.data = &ctx;
+    uv_signal_start(&sigint,  on_signal, SIGINT);
+    uv_signal_start(&sigterm, on_signal, SIGTERM);
+
     fprintf(stderr, R"(
   nospoon client — P2P VPN powered by hyperdht-cpp
   -------------------------------------------------
@@ -274,6 +295,10 @@ int run_client(const Config& config) {
         full_tunnel::disable_client_full_tunnel();
         ctx.full_tunnel_active = false;
     }
+    uv_signal_stop(&sigint);
+    uv_signal_stop(&sigterm);
+    uv_close(reinterpret_cast<uv_handle_t*>(&sigint),  nullptr);
+    uv_close(reinterpret_cast<uv_handle_t*>(&sigterm), nullptr);
     uv_timer_stop(&ctx.keepalive_timer);
     uv_timer_stop(&ctx.reconnect_timer);
     ctx.tun.close();

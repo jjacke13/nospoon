@@ -4,16 +4,6 @@ Loose threads from the initial port, in rough priority order.
 
 ## High
 
-- **Graceful shutdown via SIGINT/SIGTERM handler.** Currently Ctrl+C
-  terminates the process immediately — the kernel closes the TUN fd,
-  but our cleanup block never runs. Full-tunnel mode leaves stale
-  iptables / split routes / NRPT DNS rules / IPv6 blackholes that
-  require manual `ip route del ...` (or reboot) to clear.
-  Fix: install `uv_signal_t` watchers on SIGINT and SIGTERM that flip
-  `ctx.running = false`, so the `while (ctx.running && uv_run(...))`
-  loop exits naturally and reaches `disable_client_full_tunnel()` /
-  `disable_server_forwarding()`. ~10 lines per side.
-
 - **Validate system dependencies at startup.** Right now if you set
   `fullTunnel: true` on a Linux host without `iptables` / `resolvectl`
   installed, the failure shows up as cryptic shell-out exit codes

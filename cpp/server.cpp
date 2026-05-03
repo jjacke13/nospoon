@@ -191,6 +191,17 @@ void keepalive_tick(uv_timer_t* handle) {
     }
 }
 
+// SIGINT/SIGTERM watcher: flip ctx.running so the main loop exits naturally
+// and the cleanup block runs (full-tunnel teardown, DHT destroy, TUN close).
+// Without this, Ctrl+C terminated the process immediately and full-tunnel
+// mode left stale iptables rules / split routes / DNS overrides.
+void on_signal(uv_signal_t* handle, int signum) {
+    auto* ctx = static_cast<ServerCtx*>(handle->data);
+    fprintf(stderr, "\n  Received signal %d — shutting down...\n", signum);
+    ctx->running = false;
+    uv_signal_stop(handle);
+}
+
 }  // namespace
 
 int run_server(const Config& config) {
@@ -260,6 +271,15 @@ int run_server(const Config& config) {
     ctx.keepalive_timer.data = &ctx;
     uv_timer_start(&ctx.keepalive_timer, keepalive_tick, 25000, 25000);
 
+    // Graceful shutdown on SIGINT (Ctrl+C) and SIGTERM (systemd stop).
+    uv_signal_t sigint{}, sigterm{};
+    uv_signal_init(&loop, &sigint);
+    uv_signal_init(&loop, &sigterm);
+    sigint.data  = &ctx;
+    sigterm.data = &ctx;
+    uv_signal_start(&sigint,  on_signal, SIGINT);
+    uv_signal_start(&sigterm, on_signal, SIGTERM);
+
     // Full-tunnel: enable IP forwarding + NAT.
     bool full_tunnel_enabled = false;
     if (config.full_tunnel) {
@@ -312,6 +332,10 @@ int run_server(const Config& config) {
     if (full_tunnel_enabled) {
         full_tunnel::disable_server_forwarding();
     }
+    uv_signal_stop(&sigint);
+    uv_signal_stop(&sigterm);
+    uv_close(reinterpret_cast<uv_handle_t*>(&sigint),  nullptr);
+    uv_close(reinterpret_cast<uv_handle_t*>(&sigterm), nullptr);
     uv_timer_stop(&ctx.keepalive_timer);
     ctx.tun.close();
     dht.destroy();
