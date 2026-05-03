@@ -92,6 +92,7 @@ jobs:
             -I /tmp/libuv-android/include \
             -I $SODIUM_PREFIX/include \
             cpp/main.cpp cpp/server.cpp cpp/client.cpp \
+            cpp/full_tunnel_android.cpp \
             $HYPERDHT_SRC/build-android/libhyperdht.a \
             $HYPERDHT_SRC/build-android/libudx.a \
             $SODIUM_PREFIX/lib/libsodium.a $UV_LIB \
