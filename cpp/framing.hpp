@@ -26,19 +26,45 @@ inline std::vector<uint8_t> frame_keepalive() {
     return {0, 0, 0, 0};
 }
 
-// Streaming frame decoder: feed bytes, emit complete frames
+// Streaming frame decoder: feed bytes, emit complete frames.
+//
+// Bounds match nospoon/lib/framing.js:
+//   - A frame claiming length > 65535 is treated as corrupt → reset buffer.
+//   - If the accumulated buffer ever exceeds 256KB without a frame
+//     completing, reset and (optionally) notify via on_overflow. This
+//     prevents an unbounded buffer if a peer feeds bytes that never
+//     finish a frame.
 class FrameDecoder {
 public:
-    using OnFrameCb = std::function<void(const uint8_t* data, size_t len)>;
+    using OnFrameCb    = std::function<void(const uint8_t* data, size_t len)>;
+    using OnOverflowCb = std::function<void()>;
 
-    void feed(const uint8_t* data, size_t len, OnFrameCb on_frame) {
+    static constexpr uint32_t MAX_FRAME_SIZE  = 65535;
+    static constexpr size_t   MAX_BUFFER_SIZE = 256 * 1024;
+
+    void feed(const uint8_t* data, size_t len, OnFrameCb on_frame,
+              OnOverflowCb on_overflow = nullptr) {
         buf_.insert(buf_.end(), data, data + len);
+
+        // Guard against unbounded growth (incomplete frames that never finish).
+        if (buf_.size() > MAX_BUFFER_SIZE) {
+            buf_.clear();
+            if (on_overflow) on_overflow();
+            return;
+        }
 
         while (buf_.size() >= 4) {
             uint32_t frame_len = (static_cast<uint32_t>(buf_[0]) << 24) |
                                  (static_cast<uint32_t>(buf_[1]) << 16) |
                                  (static_cast<uint32_t>(buf_[2]) << 8) |
                                  static_cast<uint32_t>(buf_[3]);
+
+            // Corrupt / hostile length — reset and wait for the stream to
+            // realign. Matches JS: silent recovery, no callback.
+            if (frame_len > MAX_FRAME_SIZE) {
+                buf_.clear();
+                return;
+            }
 
             if (frame_len == 0) {
                 // Keepalive — consume header, skip
