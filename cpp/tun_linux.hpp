@@ -29,28 +29,6 @@ public:
     Tun(const Tun&) = delete;
     Tun& operator=(const Tun&) = delete;
 
-    // Adopt an externally-provided TUN file descriptor (Android VpnService
-    // path). The parent has already configured IP/MTU/routes via
-    // VpnService.Builder before calling establish(); we just read/write on
-    // the fd. Marks the fd non-blocking so uv_poll never stalls the loop.
-    int adopt_fd(int fd, int mtu, const std::string& name = "tun0") {
-        if (fd_ >= 0) {
-            fprintf(stderr, "Tun::adopt_fd: already owns fd %d\n", fd_);
-            return -1;
-        }
-        if (fd < 0) return -1;
-
-        int flags = fcntl(fd, F_GETFL, 0);
-        if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-
-        fd_   = fd;
-        mtu_  = mtu;
-        name_ = name.empty() ? std::string("tun0") : name;
-        fprintf(stderr, "  TUN adopted fd %d as %s (MTU %d)\n",
-                fd_, name_.c_str(), mtu_);
-        return 0;
-    }
-
     // Open TUN device, configure IPv4 (+ optional IPv6) + MTU, bring up.
     // ip_cidr: "10.0.0.1/24"
     // ipv6_cidr: "fd00::1/64" (empty for IPv4-only)

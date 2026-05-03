@@ -31,13 +31,6 @@ struct Config {
     bool full_tunnel = false;
     std::string out_iface;   // server full-tunnel: outbound net interface
 
-    // Two-phase mode for Android: when fd_socket >= 0, the client connects
-    // DHT first (no TUN), writes "CONNECTED" to fd_socket, then blocks
-    // recvmsg(SCM_RIGHTS) on it for the TUN fd to adopt. The Android app
-    // (NospoonVpnService.kt) drives this protocol — see android/app/.../jni
-    // for the parent-side helper.
-    int fd_socket = -1;
-
     // Parse IP without CIDR prefix
     std::string ip_address() const {
         auto slash = ip.find('/');
