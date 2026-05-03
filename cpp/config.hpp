@@ -75,16 +75,55 @@ inline std::string strip_comments(const std::string& input) {
     return out;
 }
 
-// Minimal JSON string value extractor
+// Minimal JSON string value extractor — handles JSON backslash escapes so
+// the closing quote is found correctly even when the value contains '\"',
+// and produces the unescaped UTF-8 string.
+//
+// Android's org.json.JSONObject.toString() escapes '/' as '\/' (legal JSON;
+// see https://cs.android.com/android/platform/superproject/main/+/main:
+// libcore/json/src/main/java/org/json/JSONStringer.java). Without unescaping,
+// "10.0.0.2/24" arrives as the literal "10.0.0.2\/24" and the CIDR regex
+// rejects it. Same hazard for any value containing '"' or '\\'.
 inline std::string json_string(const std::string& json, const std::string& key) {
     auto pattern = "\"" + key + "\"";
     auto pos = json.find(pattern);
     if (pos == std::string::npos) return "";
     pos = json.find('"', pos + pattern.size() + 1);
     if (pos == std::string::npos) return "";
-    auto end = json.find('"', pos + 1);
-    if (end == std::string::npos) return "";
-    return json.substr(pos + 1, end - pos - 1);
+    auto start = pos + 1;
+
+    // Walk to the matching close quote, skipping over '\X' pairs so a
+    // backslash-escaped quote inside the string doesn't terminate early.
+    auto i = start;
+    while (i < json.size()) {
+        if (json[i] == '\\' && i + 1 < json.size()) { i += 2; continue; }
+        if (json[i] == '"') break;
+        i++;
+    }
+    if (i >= json.size()) return "";
+
+    // Unescape the slice [start, i). Only the escape sequences org.json
+    // emits (and a few extras for safety) are translated; anything else
+    // passes through verbatim.
+    std::string out;
+    out.reserve(i - start);
+    for (auto j = start; j < i; j++) {
+        if (json[j] != '\\' || j + 1 >= i) { out += json[j]; continue; }
+        char e = json[j + 1];
+        switch (e) {
+            case '"':  out += '"';  break;
+            case '\\': out += '\\'; break;
+            case '/':  out += '/';  break;
+            case 'b':  out += '\b'; break;
+            case 'f':  out += '\f'; break;
+            case 'n':  out += '\n'; break;
+            case 'r':  out += '\r'; break;
+            case 't':  out += '\t'; break;
+            default:   out += e;    break;  // \uXXXX not used by our schema
+        }
+        j++;
+    }
+    return out;
 }
 
 // Minimal JSON integer value extractor
