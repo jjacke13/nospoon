@@ -96,17 +96,24 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // Accept both `nospoon up <config> [flags]` (matches the JS CLI and the
-    // Android NospoonVpnService) and the legacy `nospoon <config>`.
+    // Accept both `nospoon up [flags] <config> [flags]` (matches the JS CLI
+    // and the Android NospoonVpnService — which puts --fd-socket *before*
+    // the config path) and the legacy `nospoon <config>`. Flag args start
+    // with '-'; the first non-flag is the config path.
     const char* config_path = nullptr;
     int flags_start = 0;
     if (std::strcmp(argv[1], "up") == 0) {
-        if (argc < 3) {
+        flags_start = 2;
+        for (int i = 2; i < argc; i++) {
+            if (argv[i][0] != '-') {
+                config_path = argv[i];
+                break;
+            }
+        }
+        if (!config_path) {
             usage();
             return 1;
         }
-        config_path = argv[2];
-        flags_start = 3;
     } else {
         config_path = argv[1];
         flags_start = 2;
