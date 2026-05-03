@@ -5,6 +5,7 @@
 #include "config.hpp"
 #include "framing.hpp"
 #include "full_tunnel.hpp"
+#include "ipc.hpp"
 #include "routing.hpp"
 #include "tun.hpp"
 
@@ -23,6 +24,7 @@ namespace {
 
 struct ClientCtx {
     HyperDHT* dht = nullptr;
+    uv_loop_t* loop = nullptr;        // needed by on_connect_result for deferred tun.start()
     Tun tun;
     Config config;
     noise::Keypair keypair;
@@ -36,6 +38,7 @@ struct ClientCtx {
     bool connected = false;
     bool running = true;
     bool full_tunnel_active = false;  // tracks whether routes/DNS are installed
+    bool tun_adopted     = false;     // fd-socket mode: TUN fd received from parent
 };
 
 void do_connect(ClientCtx& ctx);
@@ -79,6 +82,12 @@ constexpr int MAX_FAILURES_BEFORE_TUNNEL_RESET = 3;
 void schedule_reconnect(ClientCtx& ctx) {
     if (!ctx.running) return;
     ctx.failures++;
+
+    // Notify the Android parent so the UI can show "Reconnecting..." and
+    // keep the foreground notification accurate.
+    if (ctx.config.fd_socket >= 0) {
+        ipc::write_line(ctx.config.fd_socket, "STATUS:reconnecting");
+    }
 
     // Kill-switch lift: full-tunnel routes prevent DHT lookups from reaching
     // bootstrap nodes via the real network. After repeated failures, remove
@@ -153,8 +162,36 @@ void on_connect_result(ClientCtx& ctx, int error,
 
     auto* duplex_ptr = ctx.duplex.get();
 
-    duplex_ptr->on_connect([]() {
+    duplex_ptr->on_connect([&ctx]() {
         fprintf(stderr, "  Encrypted tunnel established\n");
+
+        // fd-socket mode: on the first successful connect, ask the Android
+        // parent for the TUN fd (it has just established the VpnService).
+        // On subsequent reconnects the TUN is already adopted — just emit
+        // a status update so the UI clears the "Reconnecting..." state.
+        if (ctx.config.fd_socket >= 0) {
+            if (!ctx.tun_adopted) {
+                if (!ipc::write_line(ctx.config.fd_socket, "CONNECTED")) {
+                    fprintf(stderr, "  Failed to send CONNECTED to parent\n");
+                    return;
+                }
+                fprintf(stderr, "  Waiting for TUN fd from parent...\n");
+                int tun_fd = ipc::recv_fd(ctx.config.fd_socket);
+                if (tun_fd < 0) {
+                    fprintf(stderr, "  Failed to receive TUN fd\n");
+                    return;
+                }
+                if (ctx.tun.adopt_fd(tun_fd, ctx.config.mtu) != 0) {
+                    fprintf(stderr, "  Failed to adopt TUN fd\n");
+                    return;
+                }
+                ctx.tun.start(ctx.loop, [&ctx](const uint8_t* data, size_t len) {
+                    on_tun_packet(ctx, data, len);
+                });
+                ctx.tun_adopted = true;
+            }
+            ipc::write_line(ctx.config.fd_socket, "STATUS:connected");
+        }
     });
 
     duplex_ptr->on_message([&ctx](const uint8_t* data, size_t len) {
@@ -182,7 +219,9 @@ void on_connect_result(ClientCtx& ctx, int error,
 
     // Full-tunnel: install routes the first time we connect; on subsequent
     // reconnects (e.g. server moved hosts) just refresh the host exemption.
-    if (ctx.config.full_tunnel) {
+    // Skipped in fd-socket mode — Android's VpnService.Builder owns routing
+    // (addRoute("0.0.0.0", 0) + addDisallowedApplication for the DHT app).
+    if (ctx.config.full_tunnel && ctx.config.fd_socket < 0) {
         std::string server_ip = result.peer_address.host_string();
         if (!ctx.full_tunnel_active) {
             if (full_tunnel::enable_client_full_tunnel(ctx.tun.name(), server_ip)) {
@@ -240,18 +279,26 @@ int run_client(const Config& config) {
 
     ClientCtx ctx;
     ctx.dht = &dht;
+    ctx.loop = &loop;
     ctx.config = config;
     ctx.keypair = kp;
     ctx.server_pk = server_pk;
 
-    // Open TUN (IPv4 + optional IPv6)
-    if (ctx.tun.open(config.ip, config.mtu, config.ipv6) != 0) {
-        fprintf(stderr, "Error: failed to open TUN device\n");
-        return 1;
+    // Open TUN now (standard mode), or defer until the parent passes us its
+    // VpnService-owned fd via SCM_RIGHTS (fd-socket mode).
+    if (config.fd_socket < 0) {
+        if (ctx.tun.open(config.ip, config.mtu, config.ipv6) != 0) {
+            fprintf(stderr, "Error: failed to open TUN device\n");
+            return 1;
+        }
+        ctx.tun.start(&loop, [&ctx](const uint8_t* data, size_t len) {
+            on_tun_packet(ctx, data, len);
+        });
+    } else {
+        fprintf(stderr,
+                "  fd-socket mode: deferring TUN setup until parent sends fd "
+                "(via fd %d)\n", config.fd_socket);
     }
-    ctx.tun.start(&loop, [&ctx](const uint8_t* data, size_t len) {
-        on_tun_packet(ctx, data, len);
-    });
 
     // Init timers
     uv_timer_init(&loop, &ctx.keepalive_timer);
