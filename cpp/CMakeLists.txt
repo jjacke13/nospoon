@@ -1,15 +1,26 @@
-# Nospoon P2P VPN — cross-platform build (Linux + Windows).
+# Nospoon C++ — P2P VPN built on hyperdht-cpp.
 #
-# Build (Linux, after building libhyperdht into ../../../build):
-#   cmake -B build-nospoon -G Ninja -S examples/cpp/nospoon
-#   ninja -C build-nospoon
+# Prerequisite: install hyperdht-cpp somewhere first.
 #
-# Build (Windows, vcpkg + MSVC, after building hyperdht into ../../../build-shared):
-#   cmake -B build-nospoon -G Ninja -S examples/cpp/nospoon \
+#   cd /path/to/hyperdht-cpp
+#   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHYPERDHT_BUILD_TESTS=OFF
+#   cmake --build build
+#   cmake --install build --prefix $HOME/opt/hyperdht
+#
+# Then build nospoon, pointing CMake at the install:
+#
+#   cd cpp
+#   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+#       -DCMAKE_PREFIX_PATH=$HOME/opt/hyperdht
+#   cmake --build build
+#
+# Windows (vcpkg + MSVC):
+#
+#   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+#       -DCMAKE_PREFIX_PATH=C:\opt\hyperdht \
 #       -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake \
-#       -DVCPKG_TARGET_TRIPLET=x64-windows-static-md \
-#       -DHYPERDHT_LIB_DIR=../../../build-shared
-#   cmake --build build-nospoon
+#       -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+#   cmake --build build
 
 cmake_minimum_required(VERSION 3.20)
 project(nospoon LANGUAGES CXX)
@@ -34,18 +45,20 @@ else()
         full_tunnel_linux.cpp)
 endif()
 
-target_include_directories(nospoon PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../../deps/libudx/include)
+target_include_directories(nospoon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Suppress libudx debug_printf noise (TLP, congestion control chatter)
 target_compile_definitions(nospoon PRIVATE NDEBUG)
 
-# === Dependencies ===
+# === hyperdht-cpp (the DHT + transport library) ===
+# Consumed via the CMake config package that hyperdht-cpp installs as
+# `hyperdht-config.cmake` under <prefix>/lib/cmake/hyperdht/. Pass
+# -DCMAKE_PREFIX_PATH=<install-prefix> if it's not on a standard path.
+find_package(hyperdht CONFIG REQUIRED)
 
+# === libsodium + libuv ===
+# Linux/macOS: system packages via find_library. Windows: vcpkg config packages.
 if(WIN32)
-    # vcpkg provides config packages for libsodium + libuv.
     find_package(unofficial-sodium CONFIG REQUIRED)
     find_package(libuv CONFIG REQUIRED)
     set(SODIUM_TARGET unofficial-sodium::sodium)
@@ -61,8 +74,6 @@ if(WIN32)
         WIN32_LEAN_AND_MEAN
         NOMINMAX
         _CRT_SECURE_NO_WARNINGS)
-    # We link the static hyperdht.lib (the DLL only exports the C FFI;
-    # nospoon uses C++ classes directly). Don't define HYPERDHT_SHARED.
 else()
     find_library(SODIUM_LIB sodium REQUIRED)
     find_library(UV_LIB uv REQUIRED)
@@ -70,30 +81,13 @@ else()
     set(UV_TARGET ${UV_LIB})
 endif()
 
-# hyperdht library — pass HYPERDHT_LIB_DIR to override (Linux defaults to
-# ../../../build, the existing standalone-build convention).
-if(NOT DEFINED HYPERDHT_LIB_DIR)
-    set(HYPERDHT_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../build)
-endif()
-
-if(WIN32)
-    # Link the STATIC hyperdht.lib — the DLL build only exports the C FFI
-    # surface (HYPERDHT_API), and nospoon uses C++ classes directly.
-    # Pass HYPERDHT_LIB_DIR pointing at the static-build directory.
-    set(HYPERDHT_LIB ${HYPERDHT_LIB_DIR}/hyperdht.lib)
-    # libudx is a separate static archive in the same build dir.
-    list(APPEND HYPERDHT_LIB ${HYPERDHT_LIB_DIR}/udx.lib)
-else()
-    set(HYPERDHT_LIB ${HYPERDHT_LIB_DIR}/libhyperdht.so)
-endif()
-
 target_link_libraries(nospoon PRIVATE
-    ${HYPERDHT_LIB}
+    hyperdht::hyperdht
+    hyperdht::udx
     ${SODIUM_TARGET}
     ${UV_TARGET})
 
 if(WIN32)
-    # raw socket types come in via libuv but we link the SDK libs explicitly
-    # (winsock + ip-helper for routing/forwarding queries used elsewhere).
+    # Winsock + IP-helper (used by hyperdht and the full-tunnel module).
     target_link_libraries(nospoon PRIVATE Ws2_32 Iphlpapi)
 endif()
