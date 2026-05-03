@@ -23,7 +23,16 @@ using namespace nospoon;
 namespace {
 
 struct ClientCtx {
-    HyperDHT* dht = nullptr;
+    // The DHT is owned via unique_ptr so we can destroy and recreate it on
+    // persistent failures (e.g. Wi-Fi → mobile-data network switch leaves
+    // the UDP socket bound to a dead interface). dht_opts is stashed at
+    // startup so the rebuild has the same bootstrap nodes / keypair.
+    std::unique_ptr<HyperDHT> dht;
+    DhtOptions dht_opts;
+    // Generation token: incremented every time we rebuild dht. In-flight
+    // connect callbacks check this and bail out if their dht is stale.
+    uint64_t dht_generation = 0;
+
     uv_loop_t* loop = nullptr;        // needed by on_connect_result for deferred tun.start()
     Tun tun;
     Config config;
@@ -73,11 +82,11 @@ void on_signal(uv_signal_t* handle, int signum) {
     uv_signal_stop(handle);
 }
 
-// After this many consecutive failures while full-tunnel is active, drop
-// the tunnel routes so DHT lookups can reach the real internet again. Routes
-// get re-added on the next successful connect. Matches the JS impl's
-// MAX_FAILURES_BEFORE_RESTART (3).
-constexpr int MAX_FAILURES_BEFORE_TUNNEL_RESET = 3;
+// After this many consecutive failures, restart the DHT (rebind socket).
+// Matches the JS impl's MAX_FAILURES_BEFORE_RESTART (3).
+constexpr int MAX_FAILURES_BEFORE_RESTART = 3;
+
+void restart_dht(ClientCtx& ctx);  // forward decl
 
 void schedule_reconnect(ClientCtx& ctx) {
     if (!ctx.running) return;
@@ -89,16 +98,20 @@ void schedule_reconnect(ClientCtx& ctx) {
         ipc::write_line(ctx.config.fd_socket, "STATUS:reconnecting");
     }
 
-    // Kill-switch lift: full-tunnel routes prevent DHT lookups from reaching
-    // bootstrap nodes via the real network. After repeated failures, remove
-    // the routes so DHT can reconnect; they'll be re-installed on success.
-    if (ctx.full_tunnel_active &&
-        ctx.failures >= MAX_FAILURES_BEFORE_TUNNEL_RESET) {
-        fprintf(stderr,
-                "  %d consecutive failures — dropping tunnel routes "
-                "to let DHT recover\n", ctx.failures);
-        full_tunnel::disable_client_full_tunnel();
-        ctx.full_tunnel_active = false;
+    // After repeated failures, the most likely cause is a stale UDP socket
+    // — either Linux full-tunnel routes have killed DHT bootstrap, or the
+    // device's network just changed (Wi-Fi → mobile data). Drop tunnel
+    // routes if active, then rebuild the DHT entirely so it binds to a
+    // working interface.
+    if (ctx.failures >= MAX_FAILURES_BEFORE_RESTART) {
+        if (ctx.full_tunnel_active) {
+            fprintf(stderr,
+                    "  Dropping tunnel routes to let DHT recover\n");
+            full_tunnel::disable_client_full_tunnel();
+            ctx.full_tunnel_active = false;
+        }
+        restart_dht(ctx);
+        return;
     }
 
     // Exponential backoff: 1s -> 2s -> 4s -> ... -> 30s max
@@ -234,13 +247,60 @@ void on_connect_result(ClientCtx& ctx, int error,
 }
 
 void do_connect(ClientCtx& ctx) {
-    if (!ctx.running) return;
+    if (!ctx.running || !ctx.dht) return;
     fprintf(stderr, "  Connecting to server...\n");
 
+    // Snapshot the generation so a callback fired by an old (now-destroyed)
+    // DHT bails out instead of running against the new one.
+    auto gen = ctx.dht_generation;
     ctx.dht->connect(ctx.server_pk,
-        [&ctx](int error, const ConnectResult& result) {
+        [&ctx, gen](int error, const ConnectResult& result) {
+            if (gen != ctx.dht_generation) {
+                fprintf(stderr, "  Stale connect result (DHT was restarted) — ignoring\n");
+                return;
+            }
             on_connect_result(ctx, error, result);
         });
+}
+
+// Tear down the current DHT and rebuild it on the same loop. Used when
+// reconnect attempts repeatedly fail — typically because a network change
+// (Wi-Fi → mobile, sleep/wake) left our UDP socket bound to a now-dead
+// interface. The new DHT binds afresh and gets a working socket on the
+// current interface. Mirrors the JS impl's `restartDht`
+// (nospoon/lib/client.js + nospoon-bare/android/worklet/client.js).
+void restart_dht(ClientCtx& ctx) {
+    if (!ctx.running) return;
+    fprintf(stderr,
+            "  Restarting DHT after %d consecutive failures (network may have switched)\n",
+            ctx.failures);
+
+    // Bump generation so any in-flight callback against the old DHT is
+    // discarded when it eventually fires.
+    ctx.dht_generation++;
+
+    // Hand the old DHT off to async destroy. Releasing into a raw pointer
+    // and freeing in the destroy callback decouples lifetime from this
+    // stack frame; the new DHT can run concurrently.
+    auto old = std::move(ctx.dht);
+    if (old) {
+        HyperDHT* raw = old.release();
+        raw->destroy([raw]() { delete raw; });
+    }
+
+    // Drop any lingering duplex from the dead connection.
+    ctx.duplex.reset();
+    ctx.decoder.reset();
+    ctx.connected = false;
+
+    // Build a fresh DHT bound to whatever the current default interface is.
+    ctx.dht = std::make_unique<HyperDHT>(ctx.loop, ctx.dht_opts);
+    ctx.dht->bind();
+
+    ctx.failures = 0;
+    ctx.backoff_ms = 1000;
+
+    do_connect(ctx);
 }
 
 }  // namespace
@@ -270,19 +330,21 @@ int run_client(const Config& config) {
         return 1;
     }
 
-    // Build DHT — use the seed-derived keypair as the default identity
+    // Build DHT — use the seed-derived keypair as the default identity.
+    // Owned via unique_ptr so restart_dht() can swap in a fresh instance
+    // after a network change (Wi-Fi → mobile-data).
     DhtOptions opts;
     opts.bootstrap = HyperDHT::default_bootstrap_nodes();
     opts.default_keypair = kp;
-    HyperDHT dht(&loop, opts);
-    dht.bind();
 
     ClientCtx ctx;
-    ctx.dht = &dht;
     ctx.loop = &loop;
     ctx.config = config;
     ctx.keypair = kp;
     ctx.server_pk = server_pk;
+    ctx.dht_opts = opts;
+    ctx.dht = std::make_unique<HyperDHT>(&loop, opts);
+    ctx.dht->bind();
 
     // Open TUN now (standard mode), or defer until the parent passes us its
     // VpnService-owned fd via SCM_RIGHTS (fd-socket mode).
@@ -327,7 +389,7 @@ int run_client(const Config& config) {
 
 )",
         ctx.tun.name().c_str(), config.ip.c_str(), config.mtu,
-        dht.port(),
+        ctx.dht->port(),
         bytes_to_hex(kp.public_key.data(), 32).c_str(),
         config.server_key.c_str());
 
@@ -349,8 +411,9 @@ int run_client(const Config& config) {
     uv_timer_stop(&ctx.keepalive_timer);
     uv_timer_stop(&ctx.reconnect_timer);
     ctx.tun.close();
-    dht.destroy();
+    if (ctx.dht) ctx.dht->destroy();
     uv_run(&loop, UV_RUN_DEFAULT);
+    ctx.dht.reset();  // free the HyperDHT after destroy callbacks have flushed
     uv_loop_close(&loop);
     return 0;
 }

@@ -12,6 +12,7 @@
 
 #include <sodium.h>
 
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -76,6 +77,12 @@ static int parse_fd_socket(int argc, char** argv, int start_index) {
 }
 
 int main(int argc, char** argv) {
+    // Don't die on EPIPE: when the underlying network goes away (Wi-Fi →
+    // mobile-data switch) writes to UDP/IPC sockets can fail with SIGPIPE,
+    // which by default kills the process. We handle the EPIPE return value
+    // ourselves and recover via DHT restart.
+    std::signal(SIGPIPE, SIG_IGN);
+
     if (sodium_init() < 0) {
         fprintf(stderr, "Error: sodium_init failed\n");
         return 1;
