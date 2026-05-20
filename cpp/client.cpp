@@ -183,10 +183,18 @@ void on_connect_result(ClientCtx& ctx, int error,
 
     duplex_ptr->on_close([&ctx](int) {
         fprintf(stderr, "  Server disconnected\n");
-        ctx.connected = false;
-        ctx.duplex.reset();
-        ctx.decoder.reset();
-        schedule_reconnect(ctx);
+        // Lambda captures (&ctx) are stored INSIDE SecretStreamDuplex via
+        // its on_close_ std::function. Calling ctx.duplex.reset() here frees
+        // the SecretStreamDuplex — and with it the closure we're running
+        // from. Any access to `ctx` after that point loads the captured
+        // reference from freed memory (UAF caught by ASAN, 2026-05-20).
+        // Workaround: stash &ctx on the stack, reorder so duplex.reset()
+        // happens last (after we no longer touch the closure).
+        auto* c = &ctx;
+        c->connected = false;
+        c->decoder.reset();
+        schedule_reconnect(*c);
+        c->duplex.reset();
     });
 
     duplex_ptr->start();
@@ -241,13 +249,26 @@ void restart_dht(ClientCtx& ctx) {
     // discarded when it eventually fires.
     ctx.dht_generation++;
 
-    // Hand the old DHT off to async destroy. Releasing into a raw pointer
-    // and freeing in the destroy callback decouples lifetime from this
-    // stack frame; the new DHT can run concurrently.
+    // Hand the old DHT off to async destroy. The library's destroy()
+    // callback fires SYNCHRONOUSLY (it signals "destruction started",
+    // not "fully done" — see SECURITY-AUDIT.md C9). Deleting the
+    // HyperDHT inside the callback runs ~RpcSocket while libuv still
+    // has pending uv_close callbacks for the embedded sockets — when
+    // on_uv_close (libudx udx.c:140) later derefs socket->udx it hits
+    // freed memory (ASAN-caught 2026-05-20). Defer the actual delete
+    // via a uv_timer so the loop has time to drain.
     auto old = std::move(ctx.dht);
     if (old) {
         HyperDHT* raw = old.release();
-        raw->destroy([raw]() { delete raw; });
+        raw->destroy(nullptr);
+        auto* timer = new uv_timer_t;
+        uv_timer_init(ctx.loop, timer);
+        timer->data = raw;
+        uv_timer_start(timer, [](uv_timer_t* t) {
+            delete static_cast<HyperDHT*>(t->data);
+            uv_close(reinterpret_cast<uv_handle_t*>(t),
+                     [](uv_handle_t* h) { delete reinterpret_cast<uv_timer_t*>(h); });
+        }, 5000, 0);
     }
 
     // Drop any lingering duplex from the dead connection.
