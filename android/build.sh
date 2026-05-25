@@ -28,15 +28,6 @@ check_env() {
         exit 1
     fi
 
-    # Set NDK_HOME if not set
-    if [ -z "$ANDROID_NDK_HOME" ]; then
-        ANDROID_NDK_HOME=$(ls -d $ANDROID_HOME/ndk/*/ 2>/dev/null | head -1)
-        if [ -n "$ANDROID_NDK_HOME" ]; then
-            export ANDROID_NDK_HOME
-            log_info "Detected ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-        fi
-    fi
-
     # Set JAVA_HOME if not set
     if [ -z "$JAVA_HOME" ]; then
         JAVA_BIN=$(which java 2>/dev/null || echo "")
@@ -51,83 +42,77 @@ check_env() {
     log_info "  ANDROID_HOME=$ANDROID_HOME"
 }
 
-# Install JS dependencies
-install_deps() {
-    log_info "Installing JS dependencies..."
-    npm install --legacy-peer-deps
-}
+# Fetch libhyperdht_jni.so from the latest hyperdht-cpp Android CI build.
+#
+# Source: hyperdht-cpp's `build.yml` workflow uploads
+# `hyperdht-android-arm64` (a tarball containing lib/libhyperdht_jni.so
+# + the static deps + headers). We extract just the JNI .so.
+#
+# Override the source branch with HYPERDHT_CI_BRANCH=other-branch.
+# Re-download with NOSPOON_FORCE_DOWNLOAD=1.
+download_binary() {
+    local BINARY_PATH="app/src/main/jniLibs/arm64-v8a/libhyperdht_jni.so"
+    local CI_BRANCH="${HYPERDHT_CI_BRANCH:-main}"
+    local REPO="jjacke13/hyperdht-cpp"
 
-# Download bare-kit
-download_barekit() {
-    if [ -f "app/libs/bare-kit/classes.jar" ] && [ -d "app/libs/bare-kit/jni/arm64-v8a" ]; then
-        log_info "bare-kit already exists, skipping download"
+    if [ -f "$BINARY_PATH" ] && [ -z "$NOSPOON_FORCE_DOWNLOAD" ]; then
+        log_info "libhyperdht_jni.so already present (set NOSPOON_FORCE_DOWNLOAD=1 to refresh)"
         return
     fi
 
-    log_info "Downloading bare-kit..."
+    log_info "Fetching latest libhyperdht_jni.so from $REPO ($CI_BRANCH)..."
+    mkdir -p "$(dirname "$BINARY_PATH")"
 
-    # Create libs directory
-    mkdir -p app/libs/bare-kit
-
-    # Download and extract bare-kit from GitHub releases
-    local tmpdir="/tmp/barekit-$$"
+    local tmpdir="/tmp/hyperdht-jni-$$"
     mkdir -p "$tmpdir"
-    gh release download --repo holepunchto/bare-kit v1.15.2 \
-        --pattern "prebuilds.zip" \
-        --dir "$tmpdir" || {
-        log_error "Failed to download bare-kit. Make sure gh CLI is authenticated:"
-        log_error "  gh auth login"
-        rm -rf "$tmpdir"
-        exit 1
-    }
+    trap 'rm -rf "$tmpdir"' RETURN
 
-    # Extract Android prebuilds
-    mkdir -p app/libs/bare-kit/jni
-    unzip -o "$tmpdir/prebuilds.zip" "android/bare-kit/jni/*" "android/bare-kit/classes.jar" -d "$tmpdir/extract" > /dev/null
-    mv "$tmpdir/extract/android/bare-kit/jni/"* app/libs/bare-kit/jni/
-    mv "$tmpdir/extract/android/bare-kit/classes.jar" app/libs/bare-kit/
-    rm -rf "$tmpdir"
+    local RUN_ID
+    RUN_ID=$(gh run list \
+        --repo "$REPO" \
+        --branch "$CI_BRANCH" \
+        --status success \
+        --limit 5 \
+        --json databaseId,name -q '.[] | select(.name | test("[Bb]uild")) | .databaseId' 2>/dev/null \
+        | head -1 || true)
 
-    log_info "bare-kit installed to app/libs/bare-kit"
-}
-
-# Link native addons
-link_addons() {
-    log_info "Linking native addons..."
-
-    # Create addons directory
-    mkdir -p app/src/main/addons
-
-    # Link bare-kit and its dependencies to the addons directory
-    npx bare-link --preset android --out app/src/main/addons
-
-    # Verify addons were linked
-    local so_count
-    so_count=$(find app/src/main/addons -name '*.so' 2>/dev/null | wc -l)
-    if [ "$so_count" -gt 0 ]; then
-        log_info "Native addons linked: $so_count .so files"
-    else
-        log_warn "No .so files in addons directory"
-    fi
-}
-
-# Bundle JS worklet (embed everything, no linking)
-bundle_worklet() {
-    log_info "Bundling JS worklet..."
-
-    # Create assets directory if needed
-    mkdir -p app/src/main/assets
-
-    # Bundle WITHOUT --linked - embed native addons in the bundle
-    npx bare-pack --preset android --out app/src/main/assets/client.bundle worklet/client.js
-
-    # Verify bundle was created
-    if [ ! -f "app/src/main/assets/client.bundle" ]; then
-        log_error "Failed to create client.bundle"
+    if [ -z "$RUN_ID" ]; then
+        log_error "No successful build found on $REPO/$CI_BRANCH"
+        log_error "Check workflow status with:"
+        log_error "  gh run list --repo $REPO"
         exit 1
     fi
 
-    log_info "Bundle created: $(ls -la app/src/main/assets/client.bundle)"
+    log_info "Using CI run $RUN_ID"
+    if ! gh run download "$RUN_ID" \
+            --repo "$REPO" \
+            --name hyperdht-android-arm64 \
+            --dir "$tmpdir" 2>&1; then
+        log_error "Failed to download hyperdht-android-arm64 artifact from run $RUN_ID"
+        exit 1
+    fi
+
+    # Artifact is hyperdht-android-arm64.tar.gz containing
+    #   lib/libhyperdht_jni.so, lib/libhyperdht.a, lib/libudx.a, …
+    # We just need the JNI shared lib.
+    local tarball
+    tarball=$(find "$tmpdir" -maxdepth 2 -name "hyperdht-android-arm64.tar.gz" | head -1)
+    if [ -z "$tarball" ]; then
+        log_error "Tarball not found in artifact. Tmpdir contents:"
+        find "$tmpdir" >&2
+        exit 1
+    fi
+
+    tar xzf "$tarball" -C "$tmpdir"
+    if [ ! -f "$tmpdir/lib/libhyperdht_jni.so" ]; then
+        log_error "lib/libhyperdht_jni.so missing inside artifact tarball"
+        find "$tmpdir" >&2
+        exit 1
+    fi
+
+    cp "$tmpdir/lib/libhyperdht_jni.so" "$BINARY_PATH"
+    chmod +x "$BINARY_PATH"
+    log_info "Installed: $BINARY_PATH ($(stat -c%s "$BINARY_PATH" 2>/dev/null || stat -f%z "$BINARY_PATH") bytes)"
 }
 
 # Build debug APK
@@ -161,10 +146,7 @@ main() {
     log_info "================================"
 
     check_env
-    install_deps
-    download_barekit
-    link_addons
-    bundle_worklet
+    download_binary
     build_apk
 
     log_info "Done!"
