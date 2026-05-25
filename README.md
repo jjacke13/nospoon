@@ -65,22 +65,48 @@ NixOS module:
 
 ### Build C++ from source
 
-```bash
-# First build hyperdht-cpp
-git clone https://github.com/jjacke13/hyperdht-cpp.git
-cd hyperdht-cpp
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON -DHYPERDHT_EXPORT_CXX=ON -DHYPERDHT_BUILD_TESTS=OFF
-ninja -C build
-cmake --install build --prefix ~/opt/hyperdht
+CMake's `FetchContent` pulls hyperdht-cpp + libudx from GitHub at build
+time and links them statically into the nospoon binary. Single-step
+build, no separate hyperdht install needed.
 
-# Then build nospoon-cpp
-cd /path/to/nospoon/cpp
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH=~/opt/hyperdht
-ninja -C build
-LD_LIBRARY_PATH=~/opt/hyperdht/lib64 ./build/nospoon up config.jsonc
+**Ubuntu / Debian:**
+
+```bash
+sudo apt install -y build-essential cmake ninja-build pkg-config \
+    libsodium-dev libuv1-dev git
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build cpp/build
+sudo cpp/build/nospoon up config.jsonc
 ```
+
+**Fedora / RHEL:**
+
+```bash
+sudo dnf install -y gcc-c++ cmake ninja-build pkg-config \
+    libsodium-devel libuv-devel git
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build cpp/build
+```
+
+**Arch:**
+
+```bash
+sudo pacman -S --needed base-devel cmake ninja pkg-config libsodium libuv git
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build cpp/build
+```
+
+**macOS (Homebrew):**
+
+```bash
+brew install cmake ninja pkg-config libsodium libuv
+cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build cpp/build
+```
+
+To skip the FetchContent path and link against a pre-built hyperdht-cpp
+install (e.g. for offline builds or vendor pinning), pass
+`-DNOSPOON_FETCH_HYPERDHT=OFF -DCMAKE_PREFIX_PATH=<install-prefix>`.
 
 ### Docker (Linux only)
 

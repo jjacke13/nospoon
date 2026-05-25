@@ -36,11 +36,16 @@ stdenv.mkDerivation (finalAttrs: {
   nativeBuildInputs = [ cmake ninja pkg-config ];
   buildInputs = [ libsodium libuv ];
 
+  # Build as a static archive so the consumer (nospoon-cpp) can fold all
+  # of hyperdht-cpp + libudx into a single, self-contained executable.
+  # libsodium + libuv stay as dynamic system libraries (typical for
+  # crypto / event-loop deps — security updates apply automatically).
   cmakeFlags = [
-    "-DBUILD_SHARED_LIBS=ON"
+    "-DBUILD_SHARED_LIBS=OFF"
     "-DHYPERDHT_EXPORT_CXX=ON"
     "-DHYPERDHT_BUILD_TESTS=OFF"
     "-DCMAKE_BUILD_TYPE=Release"
+    "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
   ];
 
   meta = {

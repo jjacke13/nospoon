@@ -50,6 +50,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   cmakeFlags = [
     "-DCMAKE_BUILD_TYPE=Release"
+    # Nix sandbox blocks network. Use the pre-built hyperdht-cpp from the
+    # `hyperdht-cpp` derivation above (find_package) instead of letting
+    # cpp/CMakeLists.txt fetch it via FetchContent.
+    "-DNOSPOON_FETCH_HYPERDHT=OFF"
   ];
 
   # Linux: wrap with iptables, ip, sysctl — same as js/package.nix.

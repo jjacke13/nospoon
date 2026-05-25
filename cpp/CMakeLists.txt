@@ -51,10 +51,52 @@ target_include_directories(nospoon PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(nospoon PRIVATE NDEBUG)
 
 # === hyperdht-cpp (the DHT + transport library) ===
-# Consumed via the CMake config package that hyperdht-cpp installs as
-# `hyperdht-config.cmake` under <prefix>/lib/cmake/hyperdht/. Pass
-# -DCMAKE_PREFIX_PATH=<install-prefix> if it's not on a standard path.
-find_package(hyperdht CONFIG REQUIRED)
+#
+# Two ways to obtain hyperdht-cpp:
+#
+#   1. `NOSPOON_FETCH_HYPERDHT=ON` (default) — CMake's FetchContent fetches
+#      the pinned commit from GitHub and builds it inline as a static
+#      archive. End-users get a one-command build:
+#           cmake -B build && cmake --build build
+#
+#   2. `NOSPOON_FETCH_HYPERDHT=OFF` — assume hyperdht-cpp is already
+#      installed (e.g. by a Nix derivation, vcpkg, or a manual
+#      `cmake --install`). Discovered via the CMake config package
+#      `hyperdht-config.cmake` under <prefix>/lib/cmake/hyperdht/. Pass
+#      `-DCMAKE_PREFIX_PATH=<install-prefix>` if it's not on a standard
+#      path. The Nix builds in cpp/package.nix use this mode so the
+#      sandbox doesn't need network access.
+#
+# Pin the FetchContent rev together with the rev in cpp/hyperdht-cpp.nix
+# so end-user builds and Nix builds use the same upstream commit.
+option(NOSPOON_FETCH_HYPERDHT
+    "Fetch hyperdht-cpp via CMake FetchContent (one-command build)" ON)
+
+if(NOSPOON_FETCH_HYPERDHT)
+    include(FetchContent)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(HYPERDHT_EXPORT_CXX ON CACHE BOOL "" FORCE)
+    set(HYPERDHT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(hyperdht
+        GIT_REPOSITORY https://github.com/jjacke13/hyperdht-cpp.git
+        GIT_TAG b8a0ab55596d70048e51fba9c1a482d93ca7eb6d
+        GIT_SUBMODULES_RECURSE ON
+        GIT_SHALLOW OFF)
+    FetchContent_MakeAvailable(hyperdht)
+    # FetchContent uses the bare target names defined by hyperdht-cpp's
+    # CMakeLists. find_package would expose them under the `hyperdht::`
+    # namespace via the installed config package. Bridge the two by
+    # declaring the aliases ourselves so the link line below works for
+    # either mode.
+    if(NOT TARGET hyperdht::hyperdht)
+        add_library(hyperdht::hyperdht ALIAS hyperdht)
+    endif()
+    if(NOT TARGET hyperdht::udx)
+        add_library(hyperdht::udx ALIAS udx)
+    endif()
+else()
+    find_package(hyperdht CONFIG REQUIRED)
+endif()
 
 # === libsodium + libuv ===
 # Linux/macOS: system packages via find_library. Windows: vcpkg config packages.
