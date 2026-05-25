@@ -1,0 +1,154 @@
+name: Release nospoon-cpp binaries
+
+# Build the nospoon-cpp single binary for every supported platform and
+# publish them as release assets. Tag a commit with `v*` (e.g. `v0.5.0`)
+# to trigger a release; the workflow_dispatch entry below allows manual
+# runs that only produce build artifacts.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write  # Needed by softprops/action-gh-release on tag runs
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-22.04
+            archive_ext: tar.gz
+          - target: linux-aarch64
+            runner: ubuntu-22.04-arm
+            archive_ext: tar.gz
+          - target: macos-x86_64
+            runner: macos-13
+            archive_ext: tar.gz
+          - target: macos-aarch64
+            runner: macos-14
+            archive_ext: tar.gz
+          - target: windows-x86_64
+            runner: windows-latest
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # === Install build deps ===========================================
+
+      - name: Install deps (Linux)
+        if: startsWith(matrix.target, 'linux-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libsodium-dev libuv1-dev git ca-certificates
+
+      - name: Install deps (macOS)
+        if: startsWith(matrix.target, 'macos-')
+        run: |
+          brew update
+          brew install cmake ninja pkg-config libsodium libuv
+
+      - name: Install deps (Windows — vcpkg)
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          # vcpkg is pre-installed on GitHub-hosted Windows runners.
+          # Use the x64-windows-static-md triplet so MSVC runtime stays
+          # dynamic (msvcrt.dll, always present) but sodium + libuv get
+          # baked in statically alongside hyperdht-cpp.
+          vcpkg install libsodium:x64-windows-static-md libuv:x64-windows-static-md
+
+      # === Build =========================================================
+
+      - name: Configure + build (Linux / macOS)
+        if: "!startsWith(matrix.target, 'windows-')"
+        run: |
+          cmake -S cpp -B cpp/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build cpp/build -j
+
+      - name: Configure + build (Windows)
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          cmake -S cpp -B cpp/build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          cmake --build cpp/build -j
+
+      # === Stage release files ==========================================
+
+      - name: Stage release (Linux / macOS)
+        if: "!startsWith(matrix.target, 'windows-')"
+        run: |
+          mkdir -p dist/nospoon-${{ matrix.target }}
+          cp cpp/build/nospoon dist/nospoon-${{ matrix.target }}/
+          cp LICENSE dist/nospoon-${{ matrix.target }}/
+          cp README.md dist/nospoon-${{ matrix.target }}/
+          cp config.example.jsonc dist/nospoon-${{ matrix.target }}/
+          chmod +x dist/nospoon-${{ matrix.target }}/nospoon
+          ls -lh dist/nospoon-${{ matrix.target }}/
+          file dist/nospoon-${{ matrix.target }}/nospoon || true
+          ( cd dist && tar -czf nospoon-${{ matrix.target }}.tar.gz \
+              nospoon-${{ matrix.target }} )
+
+      - name: Stage release (Windows)
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          $stage = "dist/nospoon-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $stage
+          Copy-Item cpp\build\nospoon.exe $stage\
+          Copy-Item cpp\bin\win32-x64\wintun.dll $stage\
+          Copy-Item cpp\bin\win32-x64\LICENSE.txt $stage\wintun-LICENSE.txt
+          Copy-Item LICENSE $stage\
+          Copy-Item README.md $stage\
+          Copy-Item config.example.jsonc $stage\
+          Get-ChildItem $stage
+          Compress-Archive -Path $stage -DestinationPath "dist/nospoon-${{ matrix.target }}.zip"
+
+      # === Upload as workflow artifact (always) =========================
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nospoon-${{ matrix.target }}
+          path: dist/nospoon-${{ matrix.target }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+          retention-days: 30
+
+  # ====================================================================
+  # Single release job: collect every per-target archive and attach them
+  # to the GitHub release that the tag triggered. Skipped on manual fires.
+  # ====================================================================
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f -printf "%p (%s bytes)\n"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/nospoon-*.*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          generate_release_notes: true
