@@ -27,9 +27,6 @@ jobs:
           - target: linux-aarch64
             runner: ubuntu-22.04-arm
             archive_ext: tar.gz
-          - target: macos-x86_64
-            runner: macos-13
-            archive_ext: tar.gz
           - target: macos-aarch64
             runner: macos-14
             archive_ext: tar.gz
@@ -88,9 +85,16 @@ jobs:
       - name: Configure + build (Windows)
         if: startsWith(matrix.target, 'windows-')
         shell: pwsh
+        # Use clang-cl (ships with Visual Studio's Clang component) instead
+        # of MSVC's cl.exe. libudx uses the GCC extension `x ?: 1` (omitted
+        # middle operand) which cl rejects; clang-cl accepts it while
+        # producing MSVC-ABI objects compatible with vcpkg's
+        # x64-windows-static-md triplet.
         run: |
           cmake -S cpp -B cpp/build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
           cmake --build cpp/build -j
