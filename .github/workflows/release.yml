@@ -56,6 +56,16 @@ jobs:
           brew update
           brew install cmake ninja pkg-config libsodium libuv
 
+      - name: Set up MSVC dev environment (Windows)
+        if: startsWith(matrix.target, 'windows-')
+        # Puts cl.exe + the MSVC headers / libs on PATH so the Ninja
+        # generator picks them up instead of the MinGW GCC that's also
+        # installed on the windows-latest runner. The vcpkg static-md
+        # triplet below is MSVC-ABI and would fail to link otherwise.
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Install deps (Windows — vcpkg)
         if: startsWith(matrix.target, 'windows-')
         shell: pwsh
