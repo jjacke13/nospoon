@@ -76,7 +76,6 @@ sudo apt install -y build-essential cmake ninja-build pkg-config \
     libsodium-dev libuv1-dev git
 cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build cpp/build
-sudo cpp/build/nospoon up config.jsonc
 ```
 
 **Fedora / RHEL:**
