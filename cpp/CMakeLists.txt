@@ -100,3 +100,18 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS nospoon
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# Windows: ship wintun.dll alongside nospoon.exe. tun_windows.cpp loads
+# it at runtime via LoadLibraryW; without this the binary can't open a
+# TUN device. Same DLL we ship for the JS impl under js/bin/win32-*.
+if(WIN32)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+        set(_WINTUN_ARCH "win32-arm64")
+    else()
+        set(_WINTUN_ARCH "win32-x64")
+    endif()
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/bin/${_WINTUN_ARCH}/wintun.dll"
+        "${CMAKE_CURRENT_SOURCE_DIR}/bin/${_WINTUN_ARCH}/LICENSE.txt"
+        DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
