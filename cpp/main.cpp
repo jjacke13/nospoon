@@ -50,11 +50,16 @@ static void usage() {
 }
 
 int main(int argc, char** argv) {
+#ifndef _WIN32
     // Don't die on EPIPE: when the underlying network goes away (Wi-Fi →
     // mobile-data switch) writes to UDP/IPC sockets can fail with SIGPIPE,
     // which by default kills the process. We handle the EPIPE return value
     // ourselves and recover via DHT restart.
+    //
+    // Windows sockets never raise SIGPIPE — failed sends return WSAECONNRESET
+    // / WSAENETRESET via WSAGetLastError(). No signal handler needed.
     std::signal(SIGPIPE, SIG_IGN);
+#endif
 
     if (sodium_init() < 0) {
         fprintf(stderr, "Error: sodium_init failed\n");
