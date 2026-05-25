@@ -1,0 +1,52 @@
+# hyperdht-cpp — C++ port of HyperDHT, the P2P DHT layer below nospoon.
+#
+# Built as a shared library with the full C++ API exported (not just the
+# C FFI) so that nospoon-cpp can link against internal classes like
+# `HyperDHT`, `Server`, `SecretStreamDuplex` etc.
+#
+# The repo bundles libudx as a git submodule under `deps/libudx`. We
+# pull it in with `fetchSubmodules = true`; CMake builds it statically
+# and folds it into libhyperdht.
+
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+  cmake,
+  ninja,
+  pkg-config,
+  libsodium,
+  libuv,
+}:
+
+stdenv.mkDerivation (finalAttrs: {
+  pname = "hyperdht-cpp";
+  # Pinned to the commit that landed the 16 KB Android page-size fix.
+  # Bump together with `rev` + `hash` when upstream advances.
+  version = "0-unstable-2026-05-25";
+
+  src = fetchFromGitHub {
+    owner = "jjacke13";
+    repo = "hyperdht-cpp";
+    rev = "b8a0ab55596d70048e51fba9c1a482d93ca7eb6d";
+    hash = "sha256-dO8zMkBvlxyxqBBIDfITsp7AWBjadwgZP0fsDHG5/Nw=";
+    fetchSubmodules = true;
+  };
+
+  nativeBuildInputs = [ cmake ninja pkg-config ];
+  buildInputs = [ libsodium libuv ];
+
+  cmakeFlags = [
+    "-DBUILD_SHARED_LIBS=ON"
+    "-DHYPERDHT_EXPORT_CXX=ON"
+    "-DHYPERDHT_BUILD_TESTS=OFF"
+    "-DCMAKE_BUILD_TYPE=Release"
+  ];
+
+  meta = {
+    description = "C++ port of HyperDHT — Distributed Hash Table for peer-to-peer connections";
+    homepage = "https://github.com/jjacke13/hyperdht-cpp";
+    license = lib.licenses.mit;
+    platforms = lib.platforms.unix;
+  };
+})

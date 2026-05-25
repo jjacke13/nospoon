@@ -91,3 +91,12 @@ if(WIN32)
     # Winsock + IP-helper (used by hyperdht and the full-tunnel module).
     target_link_libraries(nospoon PRIVATE Ws2_32 Iphlpapi)
 endif()
+
+# === Install ===
+# Lets `cmake --install build --prefix $out` ship the binary into a Nix
+# (or Linux distro) output directory. The runtime needs libhyperdht.so on
+# the dynamic-linker search path; the Nix wrapper handles that via
+# rpath / autoPatchelfHook.
+include(GNUInstallDirs)
+install(TARGETS nospoon
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
