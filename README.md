@@ -9,7 +9,7 @@ A peer-to-peer VPN that **eliminates the need for a publicly reachable server**.
 nospoon ships in two interchangeable implementations:
 
 - **nospoon-cpp** — single-binary C++ port built on [hyperdht-cpp](https://github.com/jjacke13/hyperdht-cpp). Smaller, faster, no Node.js runtime needed. **Recommended.**
-- **nospoon-js** — Node.js implementation, the original. Multi-year track record.
+- **nospoon-js** — Node.js implementation. Uses the original implementation of HyperDHT in JS. 
 
 Both speak the same framing + DHT protocol, so a JS server can talk to a C++ client and vice-versa. Pick either; the config files are byte-for-byte compatible.
 

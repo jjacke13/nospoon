@@ -21,7 +21,7 @@
         nospoon-cpp = pkgs.callPackage ./cpp/package.nix { };
       in {
         # Two interchangeable implementations of the same wire protocol:
-        #   nospoon-js  — Node.js + koffi   (mature; lives under js/)
+        #   nospoon-js  — Node.js + koffi   (lives under js/)
         #   nospoon-cpp — C++ single binary (smaller, faster; under cpp/)
         # Both ship `bin/nospoon`. The NixOS module reads
         # `services.nospoon.package`, which defaults to `default` below.
