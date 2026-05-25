@@ -4,7 +4,18 @@
 
 A peer-to-peer VPN that **eliminates the need for a publicly reachable server**. Built on [HyperDHT](https://github.com/holepunchto/hyperdht) for NAT hole-punching and Noise-encrypted tunnels. No public IP, no port forwarding, no central infrastructure — just a key.
 
+## Two implementations, one wire protocol
+
+nospoon ships in two interchangeable implementations:
+
+- **nospoon-cpp** — single-binary C++ port built on [hyperdht-cpp](https://github.com/jjacke13/hyperdht-cpp). Smaller, faster, no Node.js runtime needed. **Recommended.**
+- **nospoon-js** — Node.js implementation, the original. Multi-year track record.
+
+Both speak the same framing + DHT protocol, so a JS server can talk to a C++ client and vice-versa. Pick either; the config files are byte-for-byte compatible.
+
 ## Install
+
+### npm (JS implementation)
 
 ```bash
 sudo npm install -g nospoon
@@ -12,16 +23,87 @@ sudo npm install -g nospoon
 
 Requires Node.js 18+. Root/admin needed for TUN device creation.
 
+### Nix flake (Linux + macOS)
+
+```bash
+# C++ binary (default — recommended)
+nix run github:jjacke13/nospoon
+
+# JS implementation
+nix run github:jjacke13/nospoon#nospoon-js
+
+# Explicit selection
+nix build github:jjacke13/nospoon#nospoon-cpp
+nix build github:jjacke13/nospoon#nospoon-js
+```
+
+NixOS module:
+
+```nix
+{
+  inputs.nospoon.url = "github:jjacke13/nospoon";
+
+  outputs = { self, nixpkgs, nospoon }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        nospoon.nixosModules.default
+        ({ pkgs, ... }: {
+          # Default is the C++ binary. To pin to JS:
+          # services.nospoon.package = nospoon.packages.${pkgs.system}.nospoon-js;
+          services.nospoon = {
+            enable = true;
+            mode = "client";
+            serverAddress = "<server-pubkey-hex>";
+            seedFile = "/etc/nospoon/seed";
+          };
+        })
+      ];
+    };
+  };
+}
+```
+
+### Build C++ from source
+
+```bash
+# First build hyperdht-cpp
+git clone https://github.com/jjacke13/hyperdht-cpp.git
+cd hyperdht-cpp
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON -DHYPERDHT_EXPORT_CXX=ON -DHYPERDHT_BUILD_TESTS=OFF
+ninja -C build
+cmake --install build --prefix ~/opt/hyperdht
+
+# Then build nospoon-cpp
+cd /path/to/nospoon/cpp
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH=~/opt/hyperdht
+ninja -C build
+LD_LIBRARY_PATH=~/opt/hyperdht/lib64 ./build/nospoon up config.jsonc
+```
+
 ### Docker (Linux only)
 
 ```bash
+cd js
 docker build -t nospoon .
 docker run --network=host --cap-add=NET_ADMIN --device /dev/net/tun \
   -v /path/to/config.jsonc:/etc/nospoon/config.jsonc \
   nospoon up
 ```
 
-`--network=host` shares the host's network stack — the TUN device and routes are created on the host. Works on any Linux distro. Not supported on macOS (Docker runs in a VM).
+`--network=host` shares the host's network stack. Not supported on macOS (Docker runs in a VM).
+
+### Android
+
+A Kotlin VPN client lives under `android/`. Build via Android Studio or:
+
+```bash
+nix develop .#android
+cd android && ./build.sh
+```
+
+The `libhyperdht_jni.so` is downloaded from hyperdht-cpp CI by the build script. See `android/FRONTEND-TODO.md` for upcoming work.
 
 ## Use Cases
 
@@ -98,7 +180,7 @@ Kill switch included: if the tunnel drops, traffic fails instead of leaking.
 
 ## Config Reference
 
-nospoon uses JSONC config files (JSON with `//` comments). See `config.example.jsonc` for all options.
+nospoon uses JSONC config files (JSON with `//` comments). The schema is identical between the JS and C++ implementations. See `config.example.jsonc` for all options.
 
 ```bash
 sudo nospoon up [config]     # default: /etc/nospoon/config.jsonc
@@ -141,20 +223,30 @@ nospoon genkey               # generate a key pair (no root needed)
 
 All traffic is end-to-end encrypted. No data passes through the DHT — it's only used for peer discovery and hole-punching. In authenticated mode, unauthorized peers are rejected during the Noise handshake before a connection is established.
 
+## Repo layout
+
+```
+js/        Node.js implementation (bin/, lib/, test/, package.nix, Dockerfile)
+cpp/       C++ port (CMakeLists.txt, *.cpp, *.hpp, package.nix, hyperdht-cpp.nix)
+android/   Kotlin VPN client (uses hyperdht-cpp via JNI wrapper)
+flake.nix  Exposes packages.nospoon-js + packages.nospoon-cpp
+module.nix Unified NixOS module — services.nospoon.package picks impl
+```
+
 ## Platforms
 
 | Platform | Status |
 |----------|--------|
-| Linux | Stable (x86_64, aarch64) |
-| macOS | Stable (Apple Silicon, Intel) |
-| Windows | Stable (x64, arm64) — via [Wintun](https://www.wintun.net) |
-| Android | Stable (Kotlin VpnService + Bare worklet) |
-| Docker | Stable (any Linux distro, `--network=host`) |
-| NixOS | Module: `services.nospoon` |
+| Linux | Stable (x86_64, aarch64) — both impls |
+| macOS | Stable (Apple Silicon, Intel) — both impls |
+| Windows | Stable (x64, arm64) — both impls, via [Wintun](https://www.wintun.net) |
+| Android | Stable (Kotlin VpnService + hyperdht-cpp JNI) |
+| Docker | Stable (any Linux distro, `--network=host`) — JS impl |
+| NixOS | Module: `services.nospoon` — defaults to C++ binary |
 
 ## Windows
 
-Requires an **Administrator** terminal. nospoon uses [Wintun](https://www.wintun.net) v0.14.1 (bundled) to create the TUN adapter — no separate driver install needed.
+Requires an **Administrator** terminal. nospoon uses [Wintun](https://www.wintun.net) v0.14.1 (bundled) to create the TUN adapter — no separate driver install needed. Both implementations ship the DLL alongside their binaries.
 
 ```powershell
 # Run as Administrator
@@ -163,7 +255,7 @@ nospoon up config.jsonc
 
 Default config path: `%PROGRAMDATA%\nospoon\config.jsonc`
 
-Full-tunnel mode works (IPv4 + IPv6 leak prevention). The Wintun prebuilt DLLs are distributed under a [permissive license](bin/win32-x64/LICENSE.txt) by WireGuard LLC.
+Full-tunnel mode works (IPv4 + IPv6 leak prevention). The Wintun prebuilt DLLs are distributed under a [permissive license](js/bin/win32-x64/LICENSE.txt) by WireGuard LLC.
 
 ## Limitations
 
@@ -176,8 +268,9 @@ GPL-3.0 — See [LICENSE](LICENSE)
 
 ## Credits
 
-- [HyperDHT](https://github.com/holepunchto/hyperdht) — DHT and hole-punching
-- [koffi](https://koffi.dev/) — FFI for TUN device creation
+- [HyperDHT](https://github.com/holepunchto/hyperdht) — DHT and hole-punching (JS reference)
+- [hyperdht-cpp](https://github.com/jjacke13/hyperdht-cpp) — C++ port underlying nospoon-cpp + the Android client
+- [koffi](https://koffi.dev/) — FFI for TUN device creation (JS impl only)
 - [Wintun](https://www.wintun.net) — Windows TUN driver by WireGuard LLC
 - [Noise Protocol](https://noiseprotocol.org/) — Encryption framework
 - [HoleSail](https://holesail.io/) — The original Layer 4 project
