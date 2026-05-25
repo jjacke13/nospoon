@@ -17,10 +17,15 @@
     in
     {
       packages = forAllSystems ({ pkgs }: let
-        nospoon = pkgs.callPackage ./package.nix { };
+        nospoon-js = pkgs.callPackage ./js/package.nix { };
       in {
-        default = nospoon;
-        nospoon = nospoon;
+        # Two interchangeable implementations of the same wire protocol:
+        #   nospoon-js  — Node.js + koffi (mature; matches lib/ source tree)
+        #   nospoon-cpp — C++ single binary (smaller, faster; under cpp/)
+        # `default` picks the recommended impl. Once the C++ Nix package
+        # lands, `default` will point at `nospoon-cpp`.
+        inherit nospoon-js;
+        default = nospoon-js;
       });
 
       devShells = nixpkgs.lib.genAttrs

@@ -38,8 +38,16 @@ in {
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = self.packages.${pkgs.system}.nospoon;
-      description = "The nospoon package to use";
+      default = self.packages.${pkgs.system}.default;
+      defaultText = lib.literalExpression "self.packages.\${pkgs.system}.default";
+      description = ''
+        The nospoon package to use. Defaults to the flake's `default`
+        output. Set to `pkgs.nospoon-js` or `pkgs.nospoon-cpp` (or any
+        package that ships a `bin/nospoon` binary) to pick a specific
+        implementation. The two implementations are wire-compatible and
+        interchangeable; pick C++ for the smaller single-binary footprint
+        and JS for the more mature track record.
+      '';
     };
 
     configFile = lib.mkOption {
