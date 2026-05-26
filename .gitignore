@@ -5,3 +5,20 @@ result
 WINDOWS.md
 WINDOWS-IMPL.md
 TODO.md
+
+# Android signing — NEVER commit
+android/keystore.properties
+android/app/*.jks
+android/app/*.keystore
+android/nospoon-release.aab
+android/nospoon-release.apk
+
+# docs/ — internal research + release notes stay local-only.
+# Only the GitHub Pages public site files (index.md, privacy.md,
+# _config.yml, assets/) are tracked.
+docs/PLAYSTORE.md
+docs/bare-kit.md
+docs/javascript-language.md
+docs/javascript-runtimes.md
+docs/mesh-design.md
+docs/npm-and-hyperdht.md
