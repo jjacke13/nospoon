@@ -1,0 +1,28 @@
+# GitHub Pages site config for nospoon.
+# Served at https://jjacke13.github.io/nospoon/
+#
+# Pages auto-builds on push to main branch when "docs/" folder source
+# is enabled in repo Settings → Pages.
+
+title: nospoon
+description: Peer-to-peer encrypted VPN over a distributed hash table
+url: https://jjacke13.github.io
+baseurl: /nospoon
+
+# Minimal Jekyll theme bundled with GitHub Pages — no extra deps,
+# renders Markdown cleanly, mobile-friendly.
+theme: jekyll-theme-minimal
+
+# Repo metadata picked up by some themes.
+github:
+  repository_url: https://github.com/jjacke13/nospoon
+  repository_name: jjacke13/nospoon
+
+# Don't render these as Jekyll pages (already gitignored, but belt+suspenders).
+exclude:
+  - PLAYSTORE.md
+  - bare-kit.md
+  - javascript-language.md
+  - javascript-runtimes.md
+  - mesh-design.md
+  - npm-and-hyperdht.md
