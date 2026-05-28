@@ -70,9 +70,11 @@ No analytics, crash reporting, or advertising SDKs are integrated.
 
 ## Children
 
-The application is not directed at children under 18. It is targeted
-at users who are capable of generating cryptographic keys and
-configuring a peer-to-peer network.
+The application does not knowingly collect any personal information
+from anyone, including children. It contains no advertising, no
+tracking, and no third-party SDKs that collect user data. The
+application uses no cloud services to which an account or identifier
+would need to be associated.
 
 ## Open source
 
