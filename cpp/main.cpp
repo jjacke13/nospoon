@@ -37,7 +37,8 @@ static void usage() {
         "nospoon — P2P VPN powered by hyperdht-cpp\n"
         "\n"
         "Usage:\n"
-        "  nospoon <config.jsonc>   Start VPN\n"
+        "  nospoon up [config]      Start VPN (default: /etc/nospoon/config.jsonc)\n"
+        "  nospoon <config.jsonc>   Start VPN (legacy)\n"
         "  nospoon genkey           Generate keypair\n"
         "\n"
         "Config (server):\n"
@@ -81,7 +82,14 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    auto config = nospoon::load_config(argv[1]);
+    // Match the JS CLI contract: `nospoon up [config]` with a default
+    // config path. Bare `nospoon <config>` still works for back-compat.
+    const char* config_path = argv[1];
+    if (std::strcmp(argv[1], "up") == 0) {
+        config_path = (argc >= 3) ? argv[2] : "/etc/nospoon/config.jsonc";
+    }
+
+    auto config = nospoon::load_config(config_path);
 
     if (config.mode == "server") {
         return run_server(config);
