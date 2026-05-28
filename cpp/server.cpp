@@ -328,18 +328,30 @@ int run_server(const Config& config) {
     // Run event loop (UV_RUN_ONCE loop for signal handling)
     while (ctx.running && uv_run(&loop, UV_RUN_ONCE)) {}
 
-    // Cleanup
+    // Cleanup — order matters: drop peer streams BEFORE dht.destroy() so
+    // libudx can flush, then sweep any handles the library left active and
+    // bound the final drain so systemd never waits more than a few seconds.
     if (full_tunnel_enabled) {
         full_tunnel::disable_server_forwarding();
     }
+    ctx.peers.clear();
     uv_signal_stop(&sigint);
     uv_signal_stop(&sigterm);
     uv_close(reinterpret_cast<uv_handle_t*>(&sigint),  nullptr);
     uv_close(reinterpret_cast<uv_handle_t*>(&sigterm), nullptr);
     uv_timer_stop(&ctx.keepalive_timer);
+    uv_close(reinterpret_cast<uv_handle_t*>(&ctx.keepalive_timer), nullptr);
     ctx.tun.close();
     dht.destroy();
-    uv_run(&loop, UV_RUN_DEFAULT);
+
+    uv_walk(&loop, [](uv_handle_t* h, void*) {
+        if (!uv_is_closing(h)) uv_close(h, nullptr);
+    }, nullptr);
+
+    uint64_t deadline = uv_hrtime() + 3ULL * 1000 * 1000 * 1000;
+    while (uv_loop_alive(&loop) && uv_hrtime() < deadline) {
+        uv_run(&loop, UV_RUN_NOWAIT);
+    }
     uv_loop_close(&loop);
     return 0;
 }

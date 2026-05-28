@@ -375,21 +375,34 @@ int run_client(const Config& config) {
     // Run event loop (UV_RUN_ONCE loop for signal handling)
     while (ctx.running && uv_run(&loop, UV_RUN_ONCE)) {}
 
-    // Cleanup
+    // Cleanup — close the SecretStream + timers + TUN before destroying the
+    // DHT, then sweep anything libudx left active and bound the final drain
+    // so systemd never waits more than a few seconds.
     if (ctx.full_tunnel_active) {
         full_tunnel::disable_client_full_tunnel();
         ctx.full_tunnel_active = false;
     }
+    ctx.duplex.reset();
     uv_signal_stop(&sigint);
     uv_signal_stop(&sigterm);
     uv_close(reinterpret_cast<uv_handle_t*>(&sigint),  nullptr);
     uv_close(reinterpret_cast<uv_handle_t*>(&sigterm), nullptr);
     uv_timer_stop(&ctx.keepalive_timer);
+    uv_close(reinterpret_cast<uv_handle_t*>(&ctx.keepalive_timer), nullptr);
     uv_timer_stop(&ctx.reconnect_timer);
+    uv_close(reinterpret_cast<uv_handle_t*>(&ctx.reconnect_timer), nullptr);
     ctx.tun.close();
     if (ctx.dht) ctx.dht->destroy();
-    uv_run(&loop, UV_RUN_DEFAULT);
-    ctx.dht.reset();  // free the HyperDHT after destroy callbacks have flushed
+
+    uv_walk(&loop, [](uv_handle_t* h, void*) {
+        if (!uv_is_closing(h)) uv_close(h, nullptr);
+    }, nullptr);
+
+    uint64_t deadline = uv_hrtime() + 3ULL * 1000 * 1000 * 1000;
+    while (uv_loop_alive(&loop) && uv_hrtime() < deadline) {
+        uv_run(&loop, UV_RUN_NOWAIT);
+    }
+    ctx.dht.reset();
     uv_loop_close(&loop);
     return 0;
 }
