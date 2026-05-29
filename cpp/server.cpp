@@ -221,10 +221,12 @@ int run_server(const Config& config) {
         kp = noise::generate_keypair();
     }
 
-    // Build DHT — use the seed-derived keypair as the default identity
+    // Build DHT — mirror JS server which calls `new HyperDHT()` with no
+    // opts. The DHT node identity is a fresh ephemeral keypair; the
+    // user's seed-derived keypair (`kp`) is only used as the server
+    // listening identity via `server->listen(kp, ...)` below.
     DhtOptions opts;
     opts.bootstrap = HyperDHT::default_bootstrap_nodes();
-    opts.default_keypair = kp;
     HyperDHT dht(&loop, opts);
     dht.bind();
 
