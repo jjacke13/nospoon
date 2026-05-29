@@ -228,6 +228,18 @@ int run_server(const Config& config) {
     HyperDHT dht(&loop, opts);
     dht.bind();
 
+    // Strip the TUN address from the announced LAN-address list. By
+    // default `share_local_address` advertises every non-loopback IPv4
+    // interface, which includes our own TUN (e.g. 10.0.0.1). Remote
+    // peers running the LAN-shortcut `match_address` then see a 10.x
+    // octet match and try to reach 10.0.0.1 directly — which never
+    // works because the TUN is an IP layer, not a UDP socket. Holepunch
+    // silently times out with "Connect failed: -5".
+    //
+    // Mirrors the JS-side patch in nospoon/js/lib/server.js
+    // (`patchAnnouncedAddresses`).
+    dht.exclude_local_address(config.ip_address());
+
     ServerCtx ctx;
     ctx.dht = &dht;
     ctx.config = config;
