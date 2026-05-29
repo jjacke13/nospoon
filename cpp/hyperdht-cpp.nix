@@ -46,6 +46,7 @@ stdenv.mkDerivation (finalAttrs: {
     "-DHYPERDHT_BUILD_TESTS=OFF"
     "-DCMAKE_BUILD_TYPE=Release"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+    "-DHYPERDHT_DEBUG=ON"
   ];
 
   meta = {
