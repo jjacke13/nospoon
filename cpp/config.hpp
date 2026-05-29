@@ -72,16 +72,37 @@ inline std::string strip_comments(const std::string& input) {
 // the closing quote is found correctly even when the value contains '\"',
 // and produces the unescaped UTF-8 string.
 //
+// Find a JSON key as a *key* (i.e. `"key":` shape) and return the offset
+// of the first non-whitespace byte after the colon. Returns npos if the
+// key isn't present. Plain `json.find("\"" + key + "\"")` is wrong because
+// it also matches the same text used as a string *value* elsewhere — e.g.
+// `"server"` was matching the value of `"mode": "server"`, causing every
+// subsequent field lookup to misread the JSON.
+inline size_t find_key(const std::string& json, const std::string& key) {
+    auto pattern = "\"" + key + "\"";
+    size_t pos = 0;
+    while ((pos = json.find(pattern, pos)) != std::string::npos) {
+        size_t after = pos + pattern.size();
+        while (after < json.size() &&
+               (json[after] == ' '  || json[after] == '\t' ||
+                json[after] == '\n' || json[after] == '\r')) {
+            after++;
+        }
+        if (after < json.size() && json[after] == ':') return after + 1;
+        pos++;
+    }
+    return std::string::npos;
+}
+
 // Android's org.json.JSONObject.toString() escapes '/' as '\/' (legal JSON;
 // see https://cs.android.com/android/platform/superproject/main/+/main:
 // libcore/json/src/main/java/org/json/JSONStringer.java). Without unescaping,
 // "10.0.0.2/24" arrives as the literal "10.0.0.2\/24" and the CIDR regex
 // rejects it. Same hazard for any value containing '"' or '\\'.
 inline std::string json_string(const std::string& json, const std::string& key) {
-    auto pattern = "\"" + key + "\"";
-    auto pos = json.find(pattern);
+    auto pos = find_key(json, key);
     if (pos == std::string::npos) return "";
-    pos = json.find('"', pos + pattern.size() + 1);
+    pos = json.find('"', pos);
     if (pos == std::string::npos) return "";
     auto start = pos + 1;
 
@@ -121,12 +142,8 @@ inline std::string json_string(const std::string& json, const std::string& key) 
 
 // Minimal JSON integer value extractor
 inline int json_int(const std::string& json, const std::string& key, int fallback) {
-    auto pattern = "\"" + key + "\"";
-    auto pos = json.find(pattern);
+    auto pos = find_key(json, key);
     if (pos == std::string::npos) return fallback;
-    pos = json.find(':', pos + pattern.size());
-    if (pos == std::string::npos) return fallback;
-    pos++;
     while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
     return std::atoi(json.c_str() + pos);
 }
@@ -134,12 +151,8 @@ inline int json_int(const std::string& json, const std::string& key, int fallbac
 // Minimal JSON boolean: matches "key": true / "key": false (whitespace-tolerant).
 // Returns fallback if key not present or not a bare true/false.
 inline bool json_bool(const std::string& json, const std::string& key, bool fallback) {
-    auto pattern = "\"" + key + "\"";
-    auto pos = json.find(pattern);
+    auto pos = find_key(json, key);
     if (pos == std::string::npos) return fallback;
-    pos = json.find(':', pos + pattern.size());
-    if (pos == std::string::npos) return fallback;
-    pos++;
     while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
     if (pos + 4 <= json.size() && json.compare(pos, 4, "true") == 0) return true;
     if (pos + 5 <= json.size() && json.compare(pos, 5, "false") == 0) return false;
@@ -149,7 +162,7 @@ inline bool json_bool(const std::string& json, const std::string& key, bool fall
 // Parse the peers object: {"hex_key": "ip", ...}
 inline std::map<std::string, std::string> json_peers(const std::string& json) {
     std::map<std::string, std::string> result;
-    auto pos = json.find("\"peers\"");
+    auto pos = find_key(json, "peers");
     if (pos == std::string::npos) return result;
     pos = json.find('{', pos);
     if (pos == std::string::npos) return result;
