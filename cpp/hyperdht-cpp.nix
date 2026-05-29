@@ -28,8 +28,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "841f6a2d0559876de04f6fc583ffcaf8c73e6db0";
-    hash = "sha256-LEzqlZv+XgdeZjG2nwnFMfRi+E82OGkrXPm6iusDQOU=";
+    rev = "ba961561486f9edaf3679d978a61ba91aed1bbfb";
+    hash = "sha256-iZEBKNuWGNVqFZ49wc5H+3dz2/n+dHKkuW2N8H9hxQA=";
     fetchSubmodules = true;
   };
 
