@@ -21,15 +21,16 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to the commit that landed the 16 KB Android page-size fix.
+  # Pinned to the commit that landed the server-side holepunch fixes
+  # (round-1 fast path + punch-start timer semantics).
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-05-29";
+  version = "0-unstable-2026-07-07";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "452e7ab390ae95ffa547b104a3aa275b7360eb3c";
-    hash = "sha256-AeeMoZ//5w1jvBctz8EwsMZdaZvYuGqvg79IxHwPEyM=";
+    rev = "a7c303bba25578ffb88283f3eaba9bac60dde29b";
+    hash = "sha256-xYKmbbDZuV5JjKLax7ByVxINYx5Ud5r/SuLXkSC+/TU=";
     fetchSubmodules = true;
   };
 
