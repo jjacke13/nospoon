@@ -22,15 +22,17 @@
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
   # Pinned to the commit that landed the server-side holepunch fixes
-  # (round-1 fast path + punch-start timer semantics).
+  # (round-1 fast path + punch-start timer semantics) plus the
+  # reconnect-storm fix (clear failed-punch sessions on abort) and the
+  # blind-relay emit-destroyed-stream fix.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-07";
+  version = "0-unstable-2026-07-08";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "a7c303bba25578ffb88283f3eaba9bac60dde29b";
-    hash = "sha256-xYKmbbDZuV5JjKLax7ByVxINYx5Ud5r/SuLXkSC+/TU=";
+    rev = "2dfa977c698535f1fcbecb0dd240bdc52746af3e";
+    hash = "sha256-vC4Ye2maGqIYkZRxtqtQJiPLjueY4IiDYyYhdJG+MjE=";
     fetchSubmodules = true;
   };
 
