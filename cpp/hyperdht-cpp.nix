@@ -21,18 +21,18 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to the commit that landed the server-side holepunch fixes
-  # (round-1 fast path + punch-start timer semantics) plus the
-  # reconnect-storm fix (clear failed-punch sessions on abort) and the
-  # blind-relay emit-destroyed-stream fix.
+  # Pinned to the JS-parity-sweep line: relay→direct upgrade (#266 port),
+  # reconnect-storm session lifecycle (abort → 10s grace, 45s backstop),
+  # symmetric-CGNAT birthday punch + winning-socket pin, relay-pairing
+  # watchdogs, silent firewall rejection.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-08";
+  version = "0-unstable-2026-07-22";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "2dfa977c698535f1fcbecb0dd240bdc52746af3e";
-    hash = "sha256-vC4Ye2maGqIYkZRxtqtQJiPLjueY4IiDYyYhdJG+MjE=";
+    rev = "2d54afb9be72a0fe77c0afbe4fe98b8d2a8c855d";
+    hash = "sha256-EWtGxDuRpo9QXXhInTEAJxCm18sBT6SdaoZwIy2Ep1k=";
     fetchSubmodules = true;
   };
 
