@@ -21,18 +21,19 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to the announcer black-window fix on top of the parity-sweep
-  # line: publish-after-settle relay list, keepalive-pong drift detection
-  # (refresh within ~5s of NAT drift), closestNodes reuse across cycles,
-  # rpc congestion-path UAF fix.
+  # Pinned to the announcer reannounce-liveness fix (Finding E): a
+  # congestion-dropped find_peer request (tid==0) left the query walk's
+  # inflight count stuck, wedging `updating_` so the server stopped
+  # reannouncing forever. Fixes Query::visit() settle + adds a 60s
+  # stuck-cycle watchdog. On top of the black-window + parity-sweep line.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-22.2";
+  version = "0-unstable-2026-07-23";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "99ca72cc0dc04d1fbe92d14a128a0fd6c9ef15f3";
-    hash = "sha256-cSzMghHQoKdvzh8l7wmNXoowcNXJCrUv2SCMQ8F0yc0=";
+    rev = "f843b4ba2f7900279506918af2e40e55423612d9";
+    hash = "sha256-4Bl/DSJ9YtuooxQzWX55nsLnQ0o7RIojTFKrFGeXWsU=";
     fetchSubmodules = true;
   };
 
