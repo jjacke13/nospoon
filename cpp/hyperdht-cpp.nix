@@ -21,18 +21,18 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to the JS-parity-sweep line: relay→direct upgrade (#266 port),
-  # reconnect-storm session lifecycle (abort → 10s grace, 45s backstop),
-  # symmetric-CGNAT birthday punch + winning-socket pin, relay-pairing
-  # watchdogs, silent firewall rejection.
+  # Pinned to the announcer black-window fix on top of the parity-sweep
+  # line: publish-after-settle relay list, keepalive-pong drift detection
+  # (refresh within ~5s of NAT drift), closestNodes reuse across cycles,
+  # rpc congestion-path UAF fix.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-22";
+  version = "0-unstable-2026-07-22.2";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "2d54afb9be72a0fe77c0afbe4fe98b8d2a8c855d";
-    hash = "sha256-EWtGxDuRpo9QXXhInTEAJxCm18sBT6SdaoZwIy2Ep1k=";
+    rev = "99ca72cc0dc04d1fbe92d14a128a0fd6c9ef15f3";
+    hash = "sha256-cSzMghHQoKdvzh8l7wmNXoowcNXJCrUv2SCMQ8F0yc0=";
     fetchSubmodules = true;
   };
 

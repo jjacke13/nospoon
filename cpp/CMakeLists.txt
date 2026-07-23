@@ -79,7 +79,7 @@ if(NOSPOON_FETCH_HYPERDHT)
     set(HYPERDHT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(hyperdht
         GIT_REPOSITORY https://github.com/jjacke13/hyperdht-cpp.git
-        GIT_TAG 2d54afb9be72a0fe77c0afbe4fe98b8d2a8c855d
+        GIT_TAG 99ca72cc0dc04d1fbe92d14a128a0fd6c9ef15f3
         GIT_SUBMODULES_RECURSE ON
         GIT_SHALLOW OFF)
     FetchContent_MakeAvailable(hyperdht)
