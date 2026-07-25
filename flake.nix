@@ -2,6 +2,14 @@
   description = "nospoon — P2P VPN over HyperDHT";
 
   inputs = {
+    # Pinned to nixos-25.11 DELIBERATELY: it ships libuv 1.51.x, and the
+    # cpp impl (via libudx) MUST NOT run on libuv 1.52.0/1.52.1 — those have
+    # a UDP POLLERR regression (libuv #4902/#5030) that silently wedges
+    # established connections on real NAT/CGNAT/mobile paths ("connected"
+    # but no data, no self-heal). See hyperdht-cpp docs/LIBUV-VERSION.md.
+    # CONSUMERS: do NOT set `inputs.nospoon.inputs.nixpkgs.follows` — that
+    # rebuilds nospoon against your (possibly newer) nixpkgs and reintroduces
+    # the bug. Let nospoon keep its own nixpkgs.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   };
 
