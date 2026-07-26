@@ -21,18 +21,19 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to d4d9d01 = the announcer reannounce-liveness fix (Finding E:
-  # Query::visit() tid==0 settle + 60s stuck-cycle watchdog) plus two
-  # docs-only commits (libuv 1.51.x requirement / 1.52 POLLERR warning,
-  # field Finding F). No code change over f843b4b.
+  # Pinned to d1b9cf4 = the announcer pickBest(3) fix (Finding H: commit the
+  # announce record to only the 3 closest replies after the walk — matching
+  # JS pickBest = slice(0,3) — so the record lives on the 3 forwarding relays
+  # and findPeer converges straight to them; turns ~28s mobile connects into
+  # ~1s). Code change is 12c4af6; d1b9cf4 is a docs-only follow-up.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-25";
+  version = "0-unstable-2026-07-26";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "d4d9d01f40081181e2f67d77fa2ac48512afb70e";
-    hash = "sha256-F69v2YVcw5a0tPWTJUMFrWpOMupqBRnwxG1cD96tqPE=";
+    rev = "d1b9cf40d5628afba06a48156ce68d62e0b91419";
+    hash = "sha256-vyMvEDclUjjYI3OLw07M0o0Os6zl7NLouc/p0Y33ErE=";
     fetchSubmodules = true;
   };
 
