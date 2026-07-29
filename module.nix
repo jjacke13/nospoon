@@ -166,7 +166,17 @@ in {
     systemd.services.nospoon = {
       description = "nospoon P2P VPN (${cfg.mode})";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" ];
+      # network-online.target, not network.target: `network.target` only means
+      # network management has *started*, so nospoon can bind while DHCP is
+      # still in flight. hyperdht enumerates the local interfaces once at bind
+      # and caches that list for the process lifetime, so binding early leaves
+      # the server advertising a link-local (169.254.x) address — or none — in
+      # its handshake `addresses4`. Same-LAN clients then find no address to
+      # match, fall back to the public IP, fail the hairpin ping and abort with
+      # -6, permanently, until the service is restarted. Off-LAN peers are
+      # unaffected, which makes it easy to miss.
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
 
       path = [ pkgs.iptables pkgs.iproute2 pkgs.procps ];
 
