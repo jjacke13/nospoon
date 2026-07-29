@@ -21,19 +21,29 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to d1b9cf4 = the announcer pickBest(3) fix (Finding H: commit the
-  # announce record to only the 3 closest replies after the walk — matching
-  # JS pickBest = slice(0,3) — so the record lives on the 3 forwarding relays
-  # and findPeer converges straight to them; turns ~28s mobile connects into
-  # ~1s). Code change is 12c4af6; d1b9cf4 is a docs-only follow-up.
+  # Pinned to 6a2d62c. Two field bugs found on 2026-07-27 are fixed here:
+  #
+  #   c3bfc60  Finding I — advertise local addresses live instead of a
+  #            bind-time snapshot. Previously an interface that appeared after
+  #            bind() (DHCP completing late, a flap, an address renewal) was
+  #            never advertised again, so same-LAN clients failed PERMANENTLY
+  #            with -6 until a restart. Keeps `exclude_local_address()` in the
+  #            path, which is what stops nospoon's TUN address being announced.
+  #   3345fe3  Finding J — never re-destroy a udx stream whose teardown is
+  #            already in flight. Fixes the SIGABRT in ~ConnState on the
+  #            connect-failure path (libuv `!uv__is_closing(handle)` assert).
+  #
+  # Also in range, not used by nospoon: a C-API firewall polarity fix (we use
+  # the C++ API; Android is client-only), stream read backpressure, and a
+  # client `reusable_socket` option.
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0-unstable-2026-07-26";
+  version = "0-unstable-2026-07-29";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "d1b9cf40d5628afba06a48156ce68d62e0b91419";
-    hash = "sha256-vyMvEDclUjjYI3OLw07M0o0Os6zl7NLouc/p0Y33ErE=";
+    rev = "6a2d62cde80cdf18217fd99b6fd49aa78164b7b2";
+    hash = "sha256-ZHdo/wsipEKVQpWYnzZsRDteJgDR4N/2Nmpdtf5pQ3g=";
     fetchSubmodules = true;
   };
 
