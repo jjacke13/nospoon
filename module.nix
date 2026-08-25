@@ -180,6 +180,21 @@ in {
 
       path = [ pkgs.iptables pkgs.iproute2 pkgs.procps ];
 
+      # systemd's defaults are StartLimitBurst=5 within
+      # StartLimitIntervalSec=10s: five failures in ten seconds and the unit
+      # stops retrying and stays `failed` until something restarts it by hand.
+      #
+      # For the common server deployment — host firewall closed, INPUT accepted
+      # only on tun0 — that is a self-locking failure mode: nospoon dying is
+      # precisely what trips the limiter, and once it is tripped the only way
+      # back in is the provider's serial/VNC console. 0 disables the rate
+      # limiter so the unit keeps retrying on RestartSec forever.
+      #
+      # This is a [Unit] directive, NOT [Service] — putting it in
+      # serviceConfig below would emit it into the wrong section and systemd
+      # would ignore it silently.
+      unitConfig.StartLimitIntervalSec = 0;
+
       serviceConfig = {
         Type = "simple";
         User = "root";
