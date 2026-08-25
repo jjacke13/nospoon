@@ -35,6 +35,17 @@
         # `services.nospoon.package`, which defaults to `default` below.
         inherit nospoon-js nospoon-cpp;
         default = nospoon-cpp;
+      } // nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+        # Fully-static aarch64 build (musl) for NON-Nix ARM boxes — Raspberry Pi
+        # OS / Debian on a Pi Zero 2 W, Pi 4/5, etc. `ldd` says "not a dynamic
+        # executable": libsodium, libuv and hyperdht-cpp are all folded in, so
+        # the deploy is ONE file with zero runtime deps and no glibc-version
+        # risk. Unwrapped by design (enableWrapper=false): the target resolves
+        # `ip` from its own /usr/sbin. Build + deploy:
+        #   nix build .#nospoon-cpp-aarch64-static
+        #   scp -L result/bin/nospoon pi:/usr/local/bin/
+        nospoon-cpp-aarch64-static =
+          pkgs.pkgsCross.aarch64-multiplatform.pkgsStatic.callPackage ./cpp/package.nix { };
       });
 
       devShells = nixpkgs.lib.genAttrs

@@ -18,6 +18,12 @@
   iproute2 ? null,
   procps ? null,
   hyperdht-cpp ? callPackage ./hyperdht-cpp.nix { },
+  # Wrap the binary so iptables/ip/sysctl are on PATH. Only meaningful when the
+  # result runs on a Nix machine: a fully-static cross build gets scp'd to a
+  # plain Debian/Pi box where the wrapper's /nix/store shebang and PATH entries
+  # do not exist, so it must ship the BARE binary and rely on the target's
+  # /usr/sbin:/sbin (Debian always has iproute2; `ip` is all client mode needs).
+  enableWrapper ? (stdenv.hostPlatform.isLinux && !stdenv.hostPlatform.isStatic),
 }:
 
 stdenv.mkDerivation (finalAttrs: {
@@ -45,7 +51,7 @@ stdenv.mkDerivation (finalAttrs: {
     ];
   };
 
-  nativeBuildInputs = [ cmake ninja pkg-config makeWrapper ];
+  nativeBuildInputs = [ cmake ninja pkg-config ] ++ lib.optional enableWrapper makeWrapper;
   buildInputs = [ hyperdht-cpp libsodium libuv ];
 
   cmakeFlags = [
@@ -58,7 +64,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   # Linux: wrap with iptables, ip, sysctl — same as js/package.nix.
   # macOS: pfctl, route, networksetup, sysctl are already on /usr/sbin.
-  postInstall = lib.optionalString stdenv.isLinux ''
+  # Static cross builds skip this entirely (see enableWrapper above).
+  postInstall = lib.optionalString enableWrapper ''
     wrapProgram "$out/bin/nospoon" \
       --prefix PATH : "${lib.makeBinPath [ iptables iproute2 procps ]}"
   '';
