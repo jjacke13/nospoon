@@ -121,14 +121,11 @@ docker run --network=host --cap-add=NET_ADMIN --device /dev/net/tun \
 
 ### Android
 
-A Kotlin VPN client lives under `android/`. Build via Android Studio or:
-
-```bash
-nix develop .#android
-cd android && ./build.sh
-```
-
-The `libhyperdht_jni.so` is downloaded from hyperdht-cpp CI by the build script. See `android/FRONTEND-TODO.md` for upcoming work.
+The Kotlin VPN client lives in its own repository,
+[nospoon-android](https://github.com/jjacke13/nospoon-android) (split out of
+`android/` with history on 2026-09-14). It speaks the same wire protocol and
+reads the same client config format as the desktop clients; see
+[docs/ANDROID.md](docs/ANDROID.md).
 
 ## Use Cases
 
@@ -253,7 +250,6 @@ All traffic is end-to-end encrypted. No data passes through the DHT — it's onl
 ```
 js/        Node.js implementation (bin/, lib/, test/, package.nix, Dockerfile)
 cpp/       C++ port (CMakeLists.txt, *.cpp, *.hpp, package.nix, hyperdht-cpp.nix)
-android/   Kotlin VPN client (uses hyperdht-cpp via JNI wrapper)
 flake.nix  Exposes packages.nospoon-js + packages.nospoon-cpp
 module.nix Unified NixOS module — services.nospoon.package picks impl
 ```
@@ -265,7 +261,7 @@ module.nix Unified NixOS module — services.nospoon.package picks impl
 | Linux | Stable (x86_64, aarch64) — both impls |
 | macOS | Stable (Apple Silicon, Intel) — both impls |
 | Windows | Stable (x64, arm64) — both impls, via [Wintun](https://www.wintun.net) |
-| Android | Stable (Kotlin VpnService + hyperdht-cpp JNI) |
+| Android | Stable (Kotlin VpnService + hyperdht-cpp JNI) — [nospoon-android](https://github.com/jjacke13/nospoon-android) |
 | Docker | Stable (any Linux distro, `--network=host`) — JS impl |
 | NixOS | Module: `services.nospoon` — defaults to C++ binary |
 

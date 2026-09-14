@@ -6,12 +6,6 @@ WINDOWS.md
 WINDOWS-IMPL.md
 TODO.md
 
-# Android signing — NEVER commit
-android/keystore.properties
-android/app/*.jks
-android/app/*.keystore
-android/nospoon-release.aab
-android/nospoon-release.apk
 
 # docs/ — internal research + release notes stay local-only.
 # Only the GitHub Pages public site files (index.md, privacy.md,
