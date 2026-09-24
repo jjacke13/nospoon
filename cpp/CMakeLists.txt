@@ -124,6 +124,58 @@ else()
     set(UV_TARGET ${UV_LIB})
 endif()
 
+# === libuv version guard ===
+#
+# hyperdht-cpp requires libuv 1.51.x. libuv 1.52.0 (PR #4902, commit 80a5e3ba)
+# rewrote uv__udp_io()'s POLLERR handling to drain only MSG_ERRQUEUE, which is
+# empty on a socket that never set IP_RECVERR. libudx sets IP_PMTUDISC_PROBE
+# but not IP_RECVERR, so an ICMP frag-needed on a smaller-MTU path latches an
+# error that is never cleared: send() keeps failing, no RTO fires, and the
+# stream wedges "connected" forever with no self-heal. Full write-up in
+# hyperdht-cpp/docs/LIBUV-VERSION.md.
+#
+# This is checked here rather than in CI because every build path lands on
+# this file — Nix, the CI jobs, and a plain end-user `cmake`. It must be a
+# hard failure: the bug is path-MTU and NAT-timing dependent, does NOT
+# reproduce on loopback, and every libudx unit test passes on a bad libuv.
+# A green test run is not evidence. v0.5.0 shipped Windows binaries built
+# against 1.52.1 precisely because nothing asserted this.
+find_path(NOSPOON_UV_INCLUDE_DIR uv/version.h)
+if(NOT NOSPOON_UV_INCLUDE_DIR)
+    message(FATAL_ERROR
+        "Cannot find uv/version.h — needed to verify the libuv version. "
+        "Install the libuv development headers.")
+endif()
+# >>> libuv-version-guard (exercised by scripts/test-libuv-guard.sh — keep markers)
+foreach(_uv_part MAJOR MINOR PATCH)
+    file(STRINGS "${NOSPOON_UV_INCLUDE_DIR}/uv/version.h" _uv_line
+        REGEX "^#define[ \t]+UV_VERSION_${_uv_part}[ \t]+[0-9]+")
+    string(REGEX MATCH "[0-9]+$" _uv_${_uv_part} "${_uv_line}")
+endforeach()
+set(NOSPOON_UV_VERSION "${_uv_MAJOR}.${_uv_MINOR}.${_uv_PATCH}")
+message(STATUS "libuv version: ${NOSPOON_UV_VERSION} (from ${NOSPOON_UV_INCLUDE_DIR})")
+
+if(NOSPOON_UV_VERSION VERSION_LESS 1.51.0)
+    message(FATAL_ERROR
+        "libuv ${NOSPOON_UV_VERSION} is too old; hyperdht-cpp needs 1.51.x.")
+elseif(NOSPOON_UV_VERSION VERSION_EQUAL 1.52.0 OR NOSPOON_UV_VERSION VERSION_EQUAL 1.52.1)
+    message(FATAL_ERROR
+        "libuv ${NOSPOON_UV_VERSION} has the UDP POLLERR regression that silently "
+        "wedges established connections (libuv #4902 / #5030). Build against "
+        "1.51.x instead. See hyperdht-cpp/docs/LIBUV-VERSION.md.\n"
+        "  Nix:     already pinned via nixos-25.11 — do not override nixpkgs.\n"
+        "  vcpkg:   use cpp/vcpkg.json (manifest mode), which pins 1.51.0.\n"
+        "  Homebrew/distro: install libuv 1.51.x, or point CMAKE_PREFIX_PATH at one.")
+elseif(NOSPOON_UV_VERSION VERSION_GREATER 1.52.1)
+    # Newer than anything that has been validated. Upstream may have fixed the
+    # regression; nobody has checked. Warn rather than block.
+    message(WARNING
+        "libuv ${NOSPOON_UV_VERSION} is newer than the validated 1.51.x and has "
+        "not been checked against the UDP POLLERR regression (libuv #4902). "
+        "Verify on a real NAT/mobile path before shipping.")
+endif()
+# <<< libuv-version-guard
+
 target_link_libraries(nospoon PRIVATE
     hyperdht::hyperdht
     hyperdht::udx

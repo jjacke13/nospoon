@@ -48,20 +48,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The runner is x86_64. The flake has no cross outputs — every output
+      # is native to its own `packages.<system>` — so the ARM64 build runs
+      # under emulation. This registers the aarch64 binfmt handler with the
+      # F (fix-binary) flag, which is what makes it work inside the Nix
+      # build sandbox. Harmless on the x86_64 leg.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - uses: cachix/install-nix-action@v27
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            extra-platforms = aarch64-linux
 
       - name: Build
         run: |
-          # .#nospoon-cpp-{x86_64,aarch64}[-debug] — always the explicit
-          # arch attribute, never the host-arch `nospoon-cpp` alias, so the
-          # runner's own architecture cannot change what gets built.
-          attr="nospoon-cpp-${{ matrix.arch }}"
+          # Always the explicit per-system attribute, never the bare
+          # `.#nospoon-cpp` (which would follow the runner's architecture).
+          attr=".#packages.${{ matrix.arch }}-linux.nospoon-cpp"
           [ "${{ matrix.variant }}" = "debug" ] && attr="$attr-debug"
-          echo "building .#$attr"
-          nix build ".#$attr" -L
+          echo "building $attr"
+          nix build "$attr" -L
           cp result/bin/nospoon ./nospoon
 
       - name: Verify it is a true single binary
@@ -173,17 +182,20 @@ jobs:
         with:
           arch: x64
 
-      - name: Install deps (vcpkg)
+      - name: Prepare vcpkg (manifest mode)
         shell: pwsh
         run: |
-          # vcpkg is pre-installed on GitHub-hosted Windows runners.
-          #
-          # x64-windows-static (NOT -static-md): also links the MSVC runtime
-          # statically. The -md variant left MSVCP140.dll and VCRUNTIME140.dll
-          # as imports — those ship with the VC++ Redistributable, which is
-          # absent on a clean Windows install, so users hit "VCRUNTIME140.dll
-          # was not found". Verified by objdump on the 2026-09-24 artifact.
-          vcpkg install libsodium:x64-windows-static libuv:x64-windows-static
+          # vcpkg is pre-installed on GitHub-hosted Windows runners, but its
+          # checkout is whatever the image shipped. cpp/vcpkg.json pins
+          # libuv to 1.51.0 via `builtin-baseline`, so that baseline commit
+          # has to exist locally for vcpkg to resolve the version database.
+          # Fetch it explicitly rather than hoping the image is new enough.
+          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --no-tags origin master
+          vcpkg version
+          # No `vcpkg install` here: in manifest mode the CMake toolchain
+          # installs cpp/vcpkg.json's dependencies at configure time, into
+          # cpp/build/vcpkg_installed. Installing in classic mode as well
+          # would pull the UNPINNED libuv and defeat the point.
 
       - name: Configure + build
         shell: pwsh
@@ -191,6 +203,16 @@ jobs:
         # MSVC's cl.exe: libudx uses the GCC extension `x ?: 1` (omitted
         # middle operand) which cl rejects; clang-cl accepts it while
         # producing MSVC-ABI objects compatible with the vcpkg triplet.
+        #
+        # x64-windows-static (NOT -static-md): also links the MSVC runtime
+        # statically. The -md variant left MSVCP140.dll and VCRUNTIME140.dll
+        # as imports — those ship with the VC++ Redistributable, which is
+        # absent on a clean Windows install, so users hit "VCRUNTIME140.dll
+        # was not found". Verified by objdump on the 2026-09-24 artifact.
+        #
+        # Configure is also where vcpkg resolves cpp/vcpkg.json and where
+        # the libuv version guard in cpp/CMakeLists.txt runs, so a bad libuv
+        # fails here rather than shipping.
         run: |
           $dbg = if ('${{ matrix.variant }}' -eq 'debug') { 'ON' } else { 'OFF' }
           cmake -S cpp -B cpp/build -G Ninja `

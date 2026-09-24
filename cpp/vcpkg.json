@@ -1,0 +1,27 @@
+{
+  "$comment": [
+    "Manifest mode, used by the Windows build only. It exists to PIN libuv.",
+    "Classic `vcpkg install libuv:x64-windows-static` resolves to whatever is",
+    "current, which put libuv 1.52.1 into the v0.5.0 Windows binaries — the",
+    "version with the UDP POLLERR regression that silently wedges established",
+    "connections (libuv #4902 / #5030, see hyperdht-cpp/docs/LIBUV-VERSION.md).",
+    "cpp/CMakeLists.txt fails the build if the resolved version is a bad one;",
+    "this file is what keeps it from being resolved in the first place.",
+    "",
+    "libsodium is deliberately left unpinned: no known version constraint.",
+    "Bump builtin-baseline to pick up newer ports; the libuv override holds."
+  ],
+  "name": "nospoon",
+  "version": "0.5.0",
+  "dependencies": [
+    "libsodium",
+    "libuv"
+  ],
+  "builtin-baseline": "dc1232a6e05dcc49703091e83743e3b4df9b9b7c",
+  "overrides": [
+    {
+      "name": "libuv",
+      "version": "1.51.0"
+    }
+  ]
+}
