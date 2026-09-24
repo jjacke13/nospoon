@@ -7,33 +7,18 @@
 //
 // The hints mirror the triage notes in CLAUDE.md — keep the two in sync.
 //
-// FOLLOW-UP: `connect_error_name` belongs upstream, next to the enum in
-// hyperdht/dht.hpp — it is the library's own strerror(). Three consumers
-// already hand-maintain their own copy (wrappers/kotlin Types.kt:26,
-// examples/android Types.kt, wrappers/rust error.rs:75), and a code added
-// upstream prints UNKNOWN here until someone remembers this file. Move it
-// when the pin is next bumped (bundle with the HYPERDHT_DEBUG=ON revert so
-// it costs one rebuild, not two). The hints stay here: "peers list" is a
-// nospoon concept and :49737 is this deployment's field knowledge.
+// Names come from the library: `ConnectError::name()` in hyperdht/dht.hpp
+// (added in pin 95cb5d9) is its strerror(), so a code added upstream is
+// named here automatically. Only the hints live in nospoon — "peers list"
+// is a nospoon concept the library knows nothing about, and :49737 is this
+// deployment's field knowledge.
 
 #include <hyperdht/dht.hpp>
 
 namespace nospoon {
 
 inline const char* connect_error_name(int e) {
-    using namespace hyperdht;
-    switch (e) {
-        case ConnectError::NONE:                   return "NONE";
-        case ConnectError::DESTROYED:              return "DESTROYED";
-        case ConnectError::PEER_NOT_FOUND:         return "PEER_NOT_FOUND";
-        case ConnectError::PEER_CONNECTION_FAILED: return "PEER_CONNECTION_FAILED";
-        case ConnectError::NO_ADDRESSES:           return "NO_ADDRESSES";
-        case ConnectError::HOLEPUNCH_FAILED:       return "HOLEPUNCH_FAILED";
-        case ConnectError::HOLEPUNCH_TIMEOUT:      return "HOLEPUNCH_TIMEOUT";
-        case ConnectError::RELAY_FAILED:           return "RELAY_FAILED";
-        case ConnectError::SERVER_ERROR:           return "SERVER_ERROR";
-        default:                                   return "UNKNOWN";
-    }
+    return hyperdht::ConnectError::name(e);
 }
 
 // What the failure means for the operator. Returns nullptr when there is

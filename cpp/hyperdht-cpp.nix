@@ -25,7 +25,9 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to 9580f99 (upstream 0.5.0) — the 2026-08-22 server punch-socket
+  # Pinned to 95cb5d9. Adds ConnectError::name() — the library strerror()
+  # that cpp/connect_error.hpp used to duplicate. Everything below is the
+  # 9580f99 (upstream 0.5.0) 2026-08-22 server punch-socket
   # batch, 36 commits. In order of impact on nospoon:
   #
   #   a0641c9  WINDOWS BUILD FIX — the highest-impact commit here for us.
@@ -105,8 +107,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "9580f99b5ce410448163a264e0207e3f825f83c8";
-    hash = "sha256-nvHZGgRfCu/C97KBpl6Hm6HFTzD+BQr2z1mMyIMqyMU=";
+    rev = "95cb5d94c119f654b83bb3a91a0cdc5db2355c65";
+    hash = "sha256-Us8KrMcjQe5CLGuXvn3/2hHaaumtH9VOeU/ZUdiS2v4=";
     fetchSubmodules = true;
   };
 
