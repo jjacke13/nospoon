@@ -13,14 +13,17 @@ name: Release nospoon-cpp binaries
 #             default download.
 #
 # Linux artifacts are fully-static musl single binaries built from the
-# flake (`.#nospoon-static*`): zero runtime deps, no glibc-version risk,
-# and byte-identical to what `nix build` gives a developer. They are
-# cross-compiled for aarch64 from the x86_64 runner, so no ARM runner is
-# needed. macOS and Windows still build with the platform toolchain —
-# there is no musl-static equivalent there. Windows links sodium/libuv
-# statically via vcpkg's x64-windows-static-md triplet, leaving only the
-# always-present MSVC runtime dynamic, so the archive is nospoon.exe plus
-# wintun.dll.
+# flake (`.#nospoon-cpp-<arch>[-debug]`): zero runtime deps, no
+# glibc-version risk, and byte-identical to what `nix build` gives a
+# developer. They are cross-compiled for aarch64 from the x86_64 runner,
+# so no ARM runner is needed.
+#
+# macOS builds with the platform toolchain — there is no musl-static
+# equivalent there, so libsodium/libuv stay dynamic.
+#
+# Windows uses vcpkg's x64-windows-static triplet, which links the MSVC
+# runtime in too, so the archive is nospoon.exe plus wintun.dll and
+# nothing else. Every remaining import is a stock-Windows DLL.
 
 on:
   push:
@@ -52,11 +55,13 @@ jobs:
 
       - name: Build
         run: |
-          # .#nospoon-static / -debug / -aarch64 / -aarch64-debug
-          suffix=""
-          [ "${{ matrix.arch }}" = "aarch64" ] && suffix="-aarch64"
-          [ "${{ matrix.variant }}" = "debug" ] && suffix="$suffix-debug"
-          nix build ".#nospoon-static$suffix" -L
+          # .#nospoon-cpp-{x86_64,aarch64}[-debug] — always the explicit
+          # arch attribute, never the host-arch `nospoon-cpp` alias, so the
+          # runner's own architecture cannot change what gets built.
+          attr="nospoon-cpp-${{ matrix.arch }}"
+          [ "${{ matrix.variant }}" = "debug" ] && attr="$attr-debug"
+          echo "building .#$attr"
+          nix build ".#$attr" -L
           cp result/bin/nospoon ./nospoon
 
       - name: Verify it is a true single binary

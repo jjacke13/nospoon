@@ -25,57 +25,73 @@
 
     in
     {
+      # Two interchangeable implementations of the same wire protocol:
+      #   nospoon-js  — Node.js + koffi   (lives under js/)
+      #   nospoon-cpp — C++ single binary (smaller, faster; under cpp/)
+      # Both ship `bin/nospoon`. The NixOS module reads
+      # `services.nospoon.package`, which defaults to `default` below.
+      #
+      # On Linux every C++ output is a fully-static musl binary: libsodium,
+      # libuv, libstdc++ and hyperdht-cpp are folded in, so `ldd` says "not a
+      # dynamic executable" and the deploy is ONE file with zero runtime deps
+      # and no glibc-version risk. That includes `nospoon-cpp` itself — there
+      # is deliberately no dynamically-linked Linux output any more. The
+      # binary is unwrapped, which is fine in both directions: module.nix puts
+      # iptables/iproute2/procps on the service PATH, and a non-Nix target
+      # resolves `ip` from its own /usr/sbin.
+      #
+      # macOS keeps the dynamic build — there is no musl-static equivalent,
+      # and libsodium/libuv come from nixpkgs anyway.
+      #
+      #   nix build .#nospoon-cpp                # this machine, release
+      #   nix build .#nospoon-cpp-debug          # this machine, debug
+      #   nix build .#nospoon-cpp-aarch64        # cross to ARM64
+      #   scp -L result/bin/nospoon pi:/usr/local/bin/
+      #
+      # `-debug` variants build hyperdht-cpp with HYPERDHT_DEBUG=ON: verbose
+      # DHT_LOG to stderr (holepunch rounds, announce cycles, peer addresses).
+      # For diagnosing a field failure — put the plain build back afterwards,
+      # since it prints peer addresses and is noisy enough to matter on a slow
+      # box. It is NOT smaller-vs-larger: the two differ by ~30 KB.
       packages = forAllSystems ({ pkgs, system }: let
         nospoon-js = pkgs.callPackage ./js/package.nix { };
-        nospoon-cpp = pkgs.callPackage ./cpp/package.nix { };
-      in {
-        # Two interchangeable implementations of the same wire protocol:
-        #   nospoon-js  — Node.js + koffi   (lives under js/)
-        #   nospoon-cpp — C++ single binary (smaller, faster; under cpp/)
-        # Both ship `bin/nospoon`. The NixOS module reads
-        # `services.nospoon.package`, which defaults to `default` below.
-        inherit nospoon-js nospoon-cpp;
-        default = nospoon-cpp;
-      } // nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux (
-        # Fully-static single-binary builds (musl) for NON-Nix Linux boxes —
-        # Debian, Raspberry Pi OS, Alpine, a distroless container, anything.
-        # `ldd` says "not a dynamic executable": libsodium, libuv, libstdc++
-        # and hyperdht-cpp are all folded in, so the deploy is ONE file with
-        # zero runtime deps and no glibc-version risk.
-        #
-        # Unwrapped by design (enableWrapper=false): the target resolves `ip`
-        # from its own /usr/sbin. Debian always ships iproute2, and `ip` is all
-        # client mode needs.
-        #
-        #   nix build .#nospoon-static            # this machine's arch
-        #   nix build .#nospoon-static-aarch64    # cross to ARM64
-        #   scp -L result/bin/nospoon pi:/usr/local/bin/
-        #
-        # `-debug` variants are identical but build hyperdht-cpp with
-        # HYPERDHT_DEBUG=ON (verbose DHT_LOG to stderr: holepunch rounds,
-        # announce cycles, peer addresses). Use them to diagnose a field
-        # failure, then put the plain build back — the debug one prints peer
-        # addresses and is noisy enough to matter on a slow box.
-        let
-          static = system': debug':
-            (import nixpkgs {
-              inherit system;
-              crossSystem = { config = system'; };
-            }).pkgsStatic.callPackage ./cpp/package.nix { debug = debug'; };
-          musl = {
-            x86_64 = "x86_64-unknown-linux-musl";
-            aarch64 = "aarch64-unknown-linux-musl";
-          };
-        in {
-          nospoon-static               = static musl.x86_64  false;
-          nospoon-static-debug         = static musl.x86_64  true;
-          nospoon-static-aarch64       = static musl.aarch64 false;
-          nospoon-static-aarch64-debug = static musl.aarch64 true;
+
+        static = target: debug:
+          (import nixpkgs {
+            inherit system;
+            crossSystem = { config = target; };
+          }).pkgsStatic.callPackage ./cpp/package.nix { inherit debug; };
+
+        musl = {
+          x86_64 = "x86_64-unknown-linux-musl";
+          aarch64 = "aarch64-unknown-linux-musl";
+        };
+        hostMusl = if pkgs.stdenv.hostPlatform.isAarch64 then musl.aarch64
+                   else musl.x86_64;
+
+        linux = rec {
+          nospoon-cpp               = static hostMusl     false;
+          nospoon-cpp-debug         = static hostMusl     true;
+          nospoon-cpp-x86_64        = static musl.x86_64  false;
+          nospoon-cpp-x86_64-debug  = static musl.x86_64  true;
+          nospoon-cpp-aarch64       = static musl.aarch64 false;
+          nospoon-cpp-aarch64-debug = static musl.aarch64 true;
 
           # Previous name for the ARM64 release build. Kept so existing
           # deploy scripts and notes do not break.
-          nospoon-cpp-aarch64-static = static musl.aarch64 false;
-        }));
+          nospoon-cpp-aarch64-static = nospoon-cpp-aarch64;
+
+          default = nospoon-cpp;
+        };
+
+        darwin = rec {
+          nospoon-cpp = pkgs.callPackage ./cpp/package.nix { };
+          nospoon-cpp-debug = pkgs.callPackage ./cpp/package.nix { debug = true; };
+          default = nospoon-cpp;
+        };
+      in
+        { inherit nospoon-js; }
+        // (if pkgs.stdenv.isLinux then linux else darwin));
 
       nixosModules = {
         nospoon = import ./module.nix { inherit self; };
