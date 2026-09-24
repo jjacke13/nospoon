@@ -9,7 +9,10 @@
     "this file is what keeps it from being resolved in the first place.",
     "",
     "libsodium is deliberately left unpinned: no known version constraint.",
-    "Bump builtin-baseline to pick up newer ports; the libuv override holds."
+    "builtin-baseline must match the vcpkg checkout in use: every transitive",
+    "dep resolves against that baseline's version database. CI runs",
+    "`vcpkg x-update-baseline` to rewrite it to the local HEAD; the libuv",
+    "override survives that and is the part that matters."
   ],
   "name": "nospoon",
   "version": "0.5.0",

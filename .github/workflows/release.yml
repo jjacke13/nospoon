@@ -130,15 +130,38 @@ jobs:
       - name: Install deps
         run: |
           brew update
-          brew install cmake ninja pkg-config libsodium libuv
+          # NOT libuv from brew. Homebrew ships 1.52.x, which has the UDP
+          # POLLERR regression (libuv #4902 / #5030) that silently wedges
+          # established streams on real paths — that is how libuv 1.52.1
+          # got into the v0.5.0 Windows binaries. Homebrew has no libuv@1.51
+          # formula to pin to, so build 1.51.0 from source; it takes seconds.
+          brew install cmake ninja pkg-config libsodium
+
+      - name: Build libuv 1.51.0
+        run: |
+          curl -fsSL -o libuv.tar.gz \
+            https://github.com/libuv/libuv/archive/refs/tags/v1.51.0.tar.gz
+          tar xzf libuv.tar.gz
+          cmake -S libuv-1.51.0 -B libuv-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/libuv" \
+            -DLIBUV_BUILD_TESTS=OFF \
+            -DLIBUV_BUILD_BENCH=OFF
+          cmake --build libuv-build --target install
 
       - name: Configure + build
+        # CMAKE_PREFIX_PATH and PKG_CONFIG_PATH both point at the 1.51.0
+        # install: nospoon's guard finds headers through the former, and
+        # hyperdht-cpp resolves libuv through pkg-config. Without both, a
+        # brew libuv pulled in as some other formula's dependency wins.
         run: |
           dbg=OFF
           [ "${{ matrix.variant }}" = "debug" ] && dbg=ON
+          export PKG_CONFIG_PATH="$HOME/libuv/lib/pkgconfig"
           cmake -S cpp -B cpp/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DHYPERDHT_DEBUG=$dbg
+            -DHYPERDHT_DEBUG=$dbg \
+            -DCMAKE_PREFIX_PATH="$HOME/libuv"
           cmake --build cpp/build -j
 
       - name: Stage
@@ -185,13 +208,21 @@ jobs:
       - name: Prepare vcpkg (manifest mode)
         shell: pwsh
         run: |
-          # vcpkg is pre-installed on GitHub-hosted Windows runners, but its
-          # checkout is whatever the image shipped. cpp/vcpkg.json pins
-          # libuv to 1.51.0 via `builtin-baseline`, so that baseline commit
-          # has to exist locally for vcpkg to resolve the version database.
-          # Fetch it explicitly rather than hoping the image is new enough.
-          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --no-tags origin master
+          # vcpkg is pre-installed on GitHub-hosted Windows runners, and its
+          # ports tree is whatever the image shipped. cpp/vcpkg.json carries
+          # a `builtin-baseline` because `overrides` requires one, but that
+          # baseline MUST match the runner's own checkout: vcpkg resolves
+          # every transitive dependency against the baseline's version
+          # database, so a baseline older than the ports tree fails with
+          # "no version database entry for <transitive dep>" (seen with
+          # pkgconf). x-update-baseline rewrites it to the local HEAD,
+          # leaving the libuv override — the thing we actually care about —
+          # untouched. libuv 1.51.0 stays resolvable because the version
+          # database is append-only.
           vcpkg version
+          vcpkg x-update-baseline --x-manifest-root=cpp
+          Write-Host "--- cpp/vcpkg.json after baseline update ---"
+          Get-Content cpp/vcpkg.json
           # No `vcpkg install` here: in manifest mode the CMake toolchain
           # installs cpp/vcpkg.json's dependencies at configure time, into
           # cpp/build/vcpkg_installed. Installing in classic mode as well
