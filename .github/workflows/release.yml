@@ -39,37 +39,38 @@ jobs:
   # ====================================================================
   linux:
     name: Build (linux-${{ matrix.arch }}-${{ matrix.variant }})
-    runs-on: ubuntu-22.04
+    # Each architecture builds on its own architecture — matching the flake,
+    # where every output is native to its `packages.<system>` and there are
+    # no cross attributes. ubuntu-24.04-arm is a real ARM64 runner, free for
+    # public repositories.
+    #
+    # The two alternatives were both tried and rejected:
+    #   - qemu (docker/setup-qemu-action + extra-platforms): the aarch64
+    #     musl-static closure is on neither cache.nixos.org nor
+    #     nix-community.cachix.org, so the job compiles libuv itself, and
+    #     libuv's own test suite FAILS under emulation — qemu gets its
+    #     timing and process tests wrong. Nine minutes to fail.
+    #   - cross-compiling from x86_64: worked, but the flake no longer
+    #     exposes cross attributes.
+    # A native runner needs neither, and runs libuv's tests for real.
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
         variant: [release, debug]
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-
-      # The runner is x86_64. The flake has no cross outputs — every output
-      # is native to its own `packages.<system>` — so the ARM64 build runs
-      # under emulation. This registers the aarch64 binfmt handler with the
-      # F (fix-binary) flag, which is what makes it work inside the Nix
-      # build sandbox. Harmless on the x86_64 leg.
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - uses: cachix/install-nix-action@v27
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
-            extra-platforms = aarch64-linux
-            # The aarch64 musl-static closure is NOT on cache.nixos.org
-            # (its libuv-static-aarch64 narinfo 404s). Without this
-            # substituter the ARM job rebuilds that whole toolchain under
-            # emulation, and libuv's own test suite fails there — qemu gets
-            # its timing/process tests wrong. With it, the job substitutes
-            # the same paths a local build does and never compiles them.
-            extra-substituters = https://nix-community.cachix.org
-            extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
 
       - name: Build
         run: |
