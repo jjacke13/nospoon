@@ -164,12 +164,10 @@ jobs:
         # hyperdht-cpp resolves libuv through pkg-config. Without both, a
         # brew libuv pulled in as some other formula's dependency wins.
         run: |
-          dbg=OFF
-          [ "${{ matrix.variant }}" = "debug" ] && dbg=ON
           export PKG_CONFIG_PATH="$HOME/libuv/lib/pkgconfig"
           cmake -S cpp -B cpp/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DHYPERDHT_DEBUG=$dbg \
+            -DHYPERDHT_DEBUG=${{ matrix.variant == 'debug' && 'ON' || 'OFF' }} \
             -DCMAKE_PREFIX_PATH="$HOME/libuv"
           cmake --build cpp/build -j
 
@@ -268,10 +266,18 @@ jobs:
         # the libuv version guard in cpp/CMakeLists.txt runs, so a bad libuv
         # fails here rather than shipping.
         run: |
-          $dbg = if ('${{ matrix.variant }}' -eq 'debug') { 'ON' } else { 'OFF' }
+          # HYPERDHT_DEBUG is substituted by GitHub before the shell sees
+          # it, NOT via a PowerShell variable. `-DNAME=$var` with no space
+          # is parsed by PowerShell as a parameter token and passed
+          # LITERALLY: cmake received the string '$dbg', which is neither
+          # empty nor a CMake false-constant, so if(HYPERDHT_DEBUG) was
+          # true and the v0.5.0 Windows *release* binary got debug logging
+          # compiled in. bash expands it fine, which is why only Windows
+          # was wrong. cpp/CMakeLists.txt now also rejects a value that is
+          # not a boolean, so this cannot fail silently again.
           cmake -S cpp -B cpp/build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DHYPERDHT_DEBUG=$dbg `
+            -DHYPERDHT_DEBUG=${{ matrix.variant == 'debug' && 'ON' || 'OFF' }} `
             -DCMAKE_C_COMPILER=clang-cl `
             -DCMAKE_CXX_COMPILER=clang-cl `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
@@ -337,28 +343,66 @@ jobs:
           retention-days: 30
 
   # ====================================================================
-  # Collect every per-target archive and attach them to the GitHub
-  # release that the tag triggered. Skipped on manual fires.
+  # Assemble the GitHub release for the tag. Skipped on manual fires.
+  #
+  # This job used to publish immediately with `generate_release_notes:
+  # true` and every archive attached. That was wrong twice running: the
+  # notes here are written by hand, and macOS has never been shipped as
+  # an asset. Pushing a tag then meant racing to cancel the run before it
+  # published. So now:
+  #
+  #   - notes come from .github/release-notes/<tag>.md, and the job FAILS
+  #     if that file is missing, rather than inventing a changelog;
+  #   - only the Linux and Windows archives are attached;
+  #   - the release is created as a DRAFT. Nothing becomes public until
+  #     someone looks at it and runs:
+  #
+  #       gh release edit <tag> --draft=false --latest
   # ====================================================================
   release:
-    name: Publish GitHub release
+    name: Assemble draft GitHub release
     needs: [linux, macos, windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: List downloaded artifacts
-        run: find artifacts -type f -printf "%p (%s bytes)\n"
+      - name: Collect the shipped archives
+        run: |
+          find artifacts -type f -printf "%p (%s bytes)\n"
+          mkdir -p dist
+          # Linux + Windows only. macOS is built and asserted above, but
+          # it is not attached — it has no runner-signed story and has
+          # never been shipped. It builds from source via the flake.
+          find artifacts -type f \( -name 'nospoon-linux-*.tar.gz' \
+                                 -o -name 'nospoon-windows-*.zip' \) \
+               -exec cp {} dist/ \;
+          cd dist
+          sha256sum nospoon-* > SHA256SUMS
+          echo "--- shipping ---"
+          cat SHA256SUMS
 
-      - name: Publish release
+      - name: Require hand-written release notes
+        run: |
+          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -s "$notes" ]; then
+            echo "::error::$notes is missing or empty. Release notes for this"
+            echo "::error::project are written by hand — add the file and re-tag."
+            exit 1
+          fi
+          echo "NOTES_PATH=$notes" >> "$GITHUB_ENV"
+
+      - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/nospoon-*.*
+          files: dist/*
           fail_on_unmatched_files: true
-          draft: false
+          body_path: ${{ env.NOTES_PATH }}
+          generate_release_notes: false
+          draft: true
           prerelease: false
-          generate_release_notes: true

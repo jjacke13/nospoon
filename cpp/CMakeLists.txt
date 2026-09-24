@@ -84,6 +84,18 @@ option(NOSPOON_FETCH_HYPERDHT
 option(HYPERDHT_DEBUG "Build hyperdht-cpp with verbose DHT_LOG to stderr" OFF)
 message(STATUS "HYPERDHT_DEBUG: ${HYPERDHT_DEBUG}")
 
+# Reject a value that is not a boolean. CMake treats ANY string that is not
+# a false-constant as true, so a shell that failed to expand a variable —
+# passing the literal `-DHYPERDHT_DEBUG=$dbg`, which is exactly what the
+# Windows CI job did through v0.5.0 — silently turns debug logging ON in a
+# build labelled "release", and that logging prints peer IP addresses.
+if(NOT HYPERDHT_DEBUG MATCHES "^(ON|OFF|TRUE|FALSE|YES|NO|Y|N|1|0|)$")
+    message(FATAL_ERROR
+        "HYPERDHT_DEBUG must be a boolean, got '${HYPERDHT_DEBUG}'. "
+        "An unexpanded shell variable will be read as TRUE and compile "
+        "debug logging into a release build.")
+endif()
+
 if(NOSPOON_FETCH_HYPERDHT)
     include(FetchContent)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
