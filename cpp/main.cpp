@@ -6,6 +6,7 @@
 //
 // Requires root/CAP_NET_ADMIN for TUN device creation.
 
+#include "commands.hpp"
 #include "config.hpp"
 
 #include <sodium.h>
@@ -20,18 +21,6 @@
 int run_server(const nospoon::Config& config);
 int run_client(const nospoon::Config& config);
 
-static void genkey() {
-    uint8_t seed[32];
-    randombytes_buf(seed, sizeof(seed));
-
-    // Derive keypair from seed (same as HyperDHT.keyPair(seed))
-    uint8_t pk[32], sk[64];
-    crypto_sign_seed_keypair(pk, sk, seed);
-
-    printf("seed:       %s\n", nospoon::bytes_to_hex(seed, 32).c_str());
-    printf("public_key: %s\n", nospoon::bytes_to_hex(pk, 32).c_str());
-}
-
 static void usage() {
     fprintf(stderr,
         "nospoon — P2P VPN powered by hyperdht-cpp\n"
@@ -39,7 +28,15 @@ static void usage() {
         "Usage:\n"
         "  nospoon up [config]      Start VPN (default: /etc/nospoon/config.jsonc)\n"
         "  nospoon <config.jsonc>   Start VPN (legacy)\n"
-        "  nospoon genkey           Generate keypair\n"
+        "\n"
+        "Utilities (no root, no TUN):\n"
+        "  nospoon genkey [seed]    Generate a keypair, or derive one from a\n"
+        "                           seed (hex, or a file holding it)\n"
+        "  nospoon inspect <config> Validate a config, show what it resolves to\n"
+        "  nospoon check [config]   Probe the DHT bootstrap; with a client\n"
+        "                           config, also dial its server\n"
+        "  nospoon init <dir> [-n N]          New deployment: server + N clients\n"
+        "  nospoon addclient <server> [-n N]  Add N clients to a deployment\n"
         "\n"
         "Config (server):\n"
         "  { \"mode\": \"server\", \"ip\": \"10.0.0.1/24\", \"seed\": \"...\",\n"
@@ -72,15 +69,17 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (std::strcmp(argv[1], "genkey") == 0) {
-        genkey();
-        return 0;
-    }
-
     if (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0) {
         usage();
         return 0;
     }
+
+    // Utility verbs — none of these touch a TUN (see commands.cpp).
+    if (std::strcmp(argv[1], "genkey") == 0)    return nospoon::cmd_genkey(argc, argv);
+    if (std::strcmp(argv[1], "inspect") == 0)   return nospoon::cmd_inspect(argc, argv);
+    if (std::strcmp(argv[1], "check") == 0)     return nospoon::cmd_check(argc, argv);
+    if (std::strcmp(argv[1], "init") == 0)      return nospoon::cmd_init(argc, argv);
+    if (std::strcmp(argv[1], "addclient") == 0) return nospoon::cmd_addclient(argc, argv);
 
     // Match the JS CLI contract: `nospoon up [config]` with a default
     // config path. Bare `nospoon <config>` still works for back-compat.

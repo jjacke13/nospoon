@@ -3,6 +3,7 @@
 // between local TUN device and encrypted P2P stream.
 
 #include "config.hpp"
+#include "connect_error.hpp"
 #include "framing.hpp"
 #include "full_tunnel.hpp"
 #include "routing.hpp"
@@ -124,7 +125,14 @@ void schedule_reconnect(ClientCtx& ctx) {
 void on_connect_result(ClientCtx& ctx, int error,
                        const ConnectResult& result) {
     if (error != 0) {
-        fprintf(stderr, "  Connect failed: %d\n", error);
+        fprintf(stderr, "  Connect failed: %s (%d)\n",
+                connect_error_name(error), error);
+        // Only on the first failure of a streak — this retries every 1-2s
+        // and the hint would otherwise flood the journal.
+        if (ctx.failures == 0) {
+            if (const char* hint = connect_error_hint(error))
+                fprintf(stderr, "    %s\n", hint);
+        }
         schedule_reconnect(ctx);
         return;
     }

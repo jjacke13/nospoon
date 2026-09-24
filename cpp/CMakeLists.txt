@@ -29,6 +29,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(nospoon
     main.cpp
+    commands.cpp
     server.cpp
     client.cpp)
 

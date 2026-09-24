@@ -35,9 +35,12 @@ stdenv.mkDerivation (finalAttrs: {
     fileset = lib.fileset.unions [
       ./CMakeLists.txt
       ./main.cpp
+      ./commands.cpp
+      ./commands.hpp
       ./server.cpp
       ./client.cpp
       ./config.hpp
+      ./connect_error.hpp
       ./framing.hpp
       ./routing.hpp
       ./validation.hpp
