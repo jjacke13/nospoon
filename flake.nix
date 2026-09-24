@@ -43,9 +43,16 @@
       # macOS keeps the dynamic build — there is no musl-static equivalent,
       # and libsodium/libuv come from nixpkgs anyway.
       #
-      #   nix build .#nospoon-cpp                # this machine, release
-      #   nix build .#nospoon-cpp-debug          # this machine, debug
-      #   nix build .#nospoon-cpp-aarch64        # cross to ARM64
+      # Every Linux output is NATIVE: `packages.<system>` builds for that
+      # system's own architecture and nothing else. There are deliberately no
+      # cross-compiled attributes. To get an ARM64 binary from an x86_64 box,
+      # ask for the aarch64-linux output and let binfmt/qemu run the build —
+      # register the handler once (NixOS: `boot.binfmt.emulatedSystems =
+      # [ "aarch64-linux" ];`, which also adds the nix `extra-platforms`).
+      #
+      #   nix build .#nospoon-cpp                         # this machine, release
+      #   nix build .#nospoon-cpp-debug                   # this machine, debug
+      #   nix build .#packages.aarch64-linux.nospoon-cpp  # ARM64, via qemu
       #   scp -L result/bin/nospoon pi:/usr/local/bin/
       #
       # `-debug` variants build hyperdht-cpp with HYPERDHT_DEBUG=ON: verbose
@@ -62,25 +69,15 @@
             crossSystem = { config = target; };
           }).pkgsStatic.callPackage ./cpp/package.nix { inherit debug; };
 
-        musl = {
-          x86_64 = "x86_64-unknown-linux-musl";
-          aarch64 = "aarch64-unknown-linux-musl";
-        };
-        hostMusl = if pkgs.stdenv.hostPlatform.isAarch64 then musl.aarch64
-                   else musl.x86_64;
+        # Always the builder's own architecture. `crossSystem` below only
+        # swaps glibc for musl; it never changes arch.
+        hostMusl = if pkgs.stdenv.hostPlatform.isAarch64
+                   then "aarch64-unknown-linux-musl"
+                   else "x86_64-unknown-linux-musl";
 
         linux = rec {
-          nospoon-cpp               = static hostMusl     false;
-          nospoon-cpp-debug         = static hostMusl     true;
-          nospoon-cpp-x86_64        = static musl.x86_64  false;
-          nospoon-cpp-x86_64-debug  = static musl.x86_64  true;
-          nospoon-cpp-aarch64       = static musl.aarch64 false;
-          nospoon-cpp-aarch64-debug = static musl.aarch64 true;
-
-          # Previous name for the ARM64 release build. Kept so existing
-          # deploy scripts and notes do not break.
-          nospoon-cpp-aarch64-static = nospoon-cpp-aarch64;
-
+          nospoon-cpp       = static hostMusl false;
+          nospoon-cpp-debug = static hostMusl true;
           default = nospoon-cpp;
         };
 
