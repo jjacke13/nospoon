@@ -17,7 +17,10 @@
   iptables ? null,
   iproute2 ? null,
   procps ? null,
-  hyperdht-cpp ? callPackage ./hyperdht-cpp.nix { },
+  # Debug logging in the DHT layer. Threaded down to hyperdht-cpp.nix so the
+  # `*-debug` flake outputs are one argument, not a separate derivation file.
+  debug ? false,
+  hyperdht-cpp ? callPackage ./hyperdht-cpp.nix { inherit debug; },
   # Wrap the binary so iptables/ip/sysctl are on PATH. Only meaningful when the
   # result runs on a Nix machine: a fully-static cross build gets scp'd to a
   # plain Debian/Pi box where the wrapper's /nix/store shebang and PATH entries
@@ -64,6 +67,19 @@ stdenv.mkDerivation (finalAttrs: {
     # cpp/CMakeLists.txt fetch it via FetchContent.
     "-DNOSPOON_FETCH_HYPERDHT=OFF"
   ];
+
+  # Pair with -ffunction-sections/-fdata-sections in hyperdht-cpp.nix: drop
+  # every section nothing references. Matters most for the static
+  # single-file outputs, where the whole library is folded into the binary.
+  env.NIX_CFLAGS_COMPILE = "-ffunction-sections -fdata-sections";
+  NIX_LDFLAGS = "--gc-sections";
+
+  # pkgsStatic leaves the binary unstripped — 6.8k symbols, ~580 KB of a
+  # 2.7 MB single-file deploy. --strip-all (not the default --strip-debug)
+  # because nothing dlopens into this binary and no one profiles the shipped
+  # artifact; a backtrace from a release build is a job for the debug output.
+  dontStrip = false;
+  stripAllList = [ "bin" ];
 
   # Linux: wrap with iptables, ip, sysctl — same as js/package.nix.
   # macOS: pfctl, route, networksetup, sysctl are already on /usr/sbin.

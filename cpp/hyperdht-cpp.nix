@@ -17,6 +17,10 @@
   pkg-config,
   libsodium,
   libuv,
+  # Debug logging to stderr (the library's DHT_LOG macros). OFF for release
+  # builds — it is verbose enough to matter on a slow box and it prints peer
+  # addresses. The `*-debug` flake outputs set this; nothing else should.
+  debug ? false,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
@@ -119,8 +123,16 @@ stdenv.mkDerivation (finalAttrs: {
     "-DHYPERDHT_BUILD_TESTS=OFF"
     "-DCMAKE_BUILD_TYPE=Release"
     "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-    "-DHYPERDHT_DEBUG=ON"
+    "-DHYPERDHT_DEBUG=${if debug then "ON" else "OFF"}"
   ];
+
+  # Emit one section per function/datum so the consumer's linker can drop
+  # everything nospoon never calls (--gc-sections in cpp/package.nix). nospoon
+  # uses a fraction of this library's surface, so this is most of the size win
+  # in the single-binary outputs. Set via NIX_CFLAGS_COMPILE rather than
+  # CMAKE_*_FLAGS_RELEASE: nix word-splits cmakeFlags entries on spaces, and
+  # overriding the Release flags would also drop the default -O2 -DNDEBUG.
+  env.NIX_CFLAGS_COMPILE = "-ffunction-sections -fdata-sections";
 
   meta = {
     description = "C++ port of HyperDHT — Distributed Hash Table for peer-to-peer connections";

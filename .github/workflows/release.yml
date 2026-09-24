@@ -4,6 +4,23 @@ name: Release nospoon-cpp binaries
 # publish them as release assets. Tag a commit with `v*` (e.g. `v0.5.0`)
 # to trigger a release; the workflow_dispatch entry below allows manual
 # runs that only produce build artifacts.
+#
+# Every target ships TWO variants:
+#   release — HYPERDHT_DEBUG=OFF. What users install.
+#   debug   — HYPERDHT_DEBUG=ON. Verbose DHT_LOG to stderr (holepunch
+#             rounds, announce cycles, peer addresses). For diagnosing a
+#             field failure; it prints peer addresses, so it is not the
+#             default download.
+#
+# Linux artifacts are fully-static musl single binaries built from the
+# flake (`.#nospoon-static*`): zero runtime deps, no glibc-version risk,
+# and byte-identical to what `nix build` gives a developer. They are
+# cross-compiled for aarch64 from the x86_64 runner, so no ARM runner is
+# needed. macOS and Windows still build with the platform toolchain —
+# there is no musl-static equivalent there. Windows links sodium/libuv
+# statically via vcpkg's x64-windows-static-md triplet, leaving only the
+# always-present MSVC runtime dynamic, so the archive is nospoon.exe plus
+# wintun.dll.
 
 on:
   push:
@@ -14,47 +31,135 @@ permissions:
   contents: write  # Needed by softprops/action-gh-release on tag runs
 
 jobs:
-  build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
+  # ====================================================================
+  # Linux — static musl single binaries, both variants, from the flake.
+  # ====================================================================
+  linux:
+    name: Build (linux-${{ matrix.arch }}-${{ matrix.variant }})
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: linux-x86_64
-            runner: ubuntu-22.04
-            archive_ext: tar.gz
-          - target: linux-aarch64
-            runner: ubuntu-22.04-arm
-            archive_ext: tar.gz
-          - target: macos-aarch64
-            runner: macos-14
-            archive_ext: tar.gz
-          - target: windows-x86_64
-            runner: windows-latest
-            archive_ext: zip
-
+        arch: [x86_64, aarch64]
+        variant: [release, debug]
     steps:
       - uses: actions/checkout@v4
 
-      # === Install build deps ===========================================
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
-      - name: Install deps (Linux)
-        if: startsWith(matrix.target, 'linux-')
+      - name: Build
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
-            libsodium-dev libuv1-dev git ca-certificates
+          # .#nospoon-static / -debug / -aarch64 / -aarch64-debug
+          suffix=""
+          [ "${{ matrix.arch }}" = "aarch64" ] && suffix="-aarch64"
+          [ "${{ matrix.variant }}" = "debug" ] && suffix="$suffix-debug"
+          nix build ".#nospoon-static$suffix" -L
+          cp result/bin/nospoon ./nospoon
 
-      - name: Install deps (macOS)
-        if: startsWith(matrix.target, 'macos-')
+      - name: Verify it is a true single binary
+        run: |
+          chmod +w nospoon
+          file nospoon
+          # No NEEDED entries and no interpreter — otherwise it is not
+          # standalone and must not ship as one.
+          if readelf -d nospoon 2>/dev/null | grep -q NEEDED; then
+            echo "::error::binary has dynamic dependencies"; exit 1
+          fi
+          if readelf -l nospoon 2>/dev/null | grep -q INTERP; then
+            echo "::error::binary has a dynamic interpreter"; exit 1
+          fi
+          # The debug build must contain DHT_LOG markers; the release
+          # build must not. Catches a variant silently building wrong.
+          n=$(strings nospoon | grep -c '\[announcer\]' || true)
+          echo "DHT_LOG markers: $n"
+          if [ "${{ matrix.variant }}" = "debug" ] && [ "$n" -eq 0 ]; then
+            echo "::error::debug variant has no DHT_LOG markers"; exit 1
+          fi
+          if [ "${{ matrix.variant }}" = "release" ] && [ "$n" -ne 0 ]; then
+            echo "::error::release variant contains DHT_LOG markers"; exit 1
+          fi
+
+      - name: Stage
+        run: |
+          name=nospoon-linux-${{ matrix.arch }}-${{ matrix.variant }}
+          mkdir -p "dist/$name"
+          cp nospoon "dist/$name/"
+          chmod +x "dist/$name/nospoon"
+          cp LICENSE README.md config.example.jsonc "dist/$name/"
+          ls -lh "dist/$name/"
+          ( cd dist && tar -czf "$name.tar.gz" "$name" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nospoon-linux-${{ matrix.arch }}-${{ matrix.variant }}
+          path: dist/nospoon-linux-${{ matrix.arch }}-${{ matrix.variant }}.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  # ====================================================================
+  # macOS — platform toolchain. No static-musl equivalent; libsodium and
+  # libuv come from brew and stay dynamic.
+  # ====================================================================
+  macos:
+    name: Build (macos-aarch64-${{ matrix.variant }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [release, debug]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
         run: |
           brew update
           brew install cmake ninja pkg-config libsodium libuv
 
-      - name: Set up MSVC dev environment (Windows)
-        if: startsWith(matrix.target, 'windows-')
+      - name: Configure + build
+        run: |
+          dbg=OFF
+          [ "${{ matrix.variant }}" = "debug" ] && dbg=ON
+          cmake -S cpp -B cpp/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHYPERDHT_DEBUG=$dbg
+          cmake --build cpp/build -j
+
+      - name: Stage
+        run: |
+          name=nospoon-macos-aarch64-${{ matrix.variant }}
+          mkdir -p "dist/$name"
+          cp cpp/build/nospoon "dist/$name/"
+          chmod +x "dist/$name/nospoon"
+          cp LICENSE README.md config.example.jsonc "dist/$name/"
+          ls -lh "dist/$name/"
+          ( cd dist && tar -czf "$name.tar.gz" "$name" )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nospoon-macos-aarch64-${{ matrix.variant }}
+          path: dist/nospoon-macos-aarch64-${{ matrix.variant }}.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
+  # ====================================================================
+  # Windows — clang-cl + vcpkg x64-windows-static (fully static CRT).
+  # Archive is nospoon.exe plus wintun.dll, which tun_windows.cpp loads at
+  # runtime via LoadLibraryW; everything else is a stock-Windows DLL.
+  # ====================================================================
+  windows:
+    name: Build (windows-x86_64-${{ matrix.variant }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [release, debug]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC dev environment
         # Puts cl.exe + the MSVC headers / libs on PATH so the Ninja
         # generator picks them up instead of the MinGW GCC that's also
         # installed on the windows-latest runner. The vcpkg static-md
@@ -63,63 +168,57 @@ jobs:
         with:
           arch: x64
 
-      - name: Install deps (Windows — vcpkg)
-        if: startsWith(matrix.target, 'windows-')
+      - name: Install deps (vcpkg)
         shell: pwsh
         run: |
           # vcpkg is pre-installed on GitHub-hosted Windows runners.
-          # Use the x64-windows-static-md triplet so MSVC runtime stays
-          # dynamic (msvcrt.dll, always present) but sodium + libuv get
-          # baked in statically alongside hyperdht-cpp.
-          vcpkg install libsodium:x64-windows-static-md libuv:x64-windows-static-md
+          #
+          # x64-windows-static (NOT -static-md): also links the MSVC runtime
+          # statically. The -md variant left MSVCP140.dll and VCRUNTIME140.dll
+          # as imports — those ship with the VC++ Redistributable, which is
+          # absent on a clean Windows install, so users hit "VCRUNTIME140.dll
+          # was not found". Verified by objdump on the 2026-09-24 artifact.
+          vcpkg install libsodium:x64-windows-static libuv:x64-windows-static
 
-      # === Build =========================================================
-
-      - name: Configure + build (Linux / macOS)
-        if: "!startsWith(matrix.target, 'windows-')"
-        run: |
-          cmake -S cpp -B cpp/build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build cpp/build -j
-
-      - name: Configure + build (Windows)
-        if: startsWith(matrix.target, 'windows-')
+      - name: Configure + build
         shell: pwsh
-        # Use clang-cl (ships with Visual Studio's Clang component) instead
-        # of MSVC's cl.exe. libudx uses the GCC extension `x ?: 1` (omitted
+        # clang-cl (from Visual Studio's Clang component) instead of
+        # MSVC's cl.exe: libudx uses the GCC extension `x ?: 1` (omitted
         # middle operand) which cl rejects; clang-cl accepts it while
-        # producing MSVC-ABI objects compatible with vcpkg's
-        # x64-windows-static-md triplet.
+        # producing MSVC-ABI objects compatible with the vcpkg triplet.
         run: |
+          $dbg = if ('${{ matrix.variant }}' -eq 'debug') { 'ON' } else { 'OFF' }
           cmake -S cpp -B cpp/build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DHYPERDHT_DEBUG=$dbg `
             -DCMAKE_C_COMPILER=clang-cl `
             -DCMAKE_CXX_COMPILER=clang-cl `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build cpp/build -j
 
-      # === Stage release files ==========================================
-
-      - name: Stage release (Linux / macOS)
-        if: "!startsWith(matrix.target, 'windows-')"
+      - name: Verify only wintun.dll is a non-system import
+        shell: pwsh
+        # The whole point of the static triplet. dumpbin lists the PE import
+        # table; everything left must be a DLL present on a stock Windows.
+        # MSVCP140/VCRUNTIME140 come from the VC++ Redistributable and are
+        # NOT — if they reappear, the archive is not self-contained.
         run: |
-          mkdir -p dist/nospoon-${{ matrix.target }}
-          cp cpp/build/nospoon dist/nospoon-${{ matrix.target }}/
-          cp LICENSE dist/nospoon-${{ matrix.target }}/
-          cp README.md dist/nospoon-${{ matrix.target }}/
-          cp config.example.jsonc dist/nospoon-${{ matrix.target }}/
-          chmod +x dist/nospoon-${{ matrix.target }}/nospoon
-          ls -lh dist/nospoon-${{ matrix.target }}/
-          file dist/nospoon-${{ matrix.target }}/nospoon || true
-          ( cd dist && tar -czf nospoon-${{ matrix.target }}.tar.gz \
-              nospoon-${{ matrix.target }} )
+          $imports = (dumpbin /dependents cpp\build\nospoon.exe) -join "`n"
+          Write-Host $imports
+          foreach ($bad in @('MSVCP140', 'VCRUNTIME140', 'MSVCR')) {
+            if ($imports -match $bad) {
+              Write-Host "::error::nospoon.exe imports $bad — needs the VC++ Redistributable, not self-contained"
+              exit 1
+            }
+          }
 
-      - name: Stage release (Windows)
-        if: startsWith(matrix.target, 'windows-')
+      - name: Stage
         shell: pwsh
         run: |
-          $stage = "dist/nospoon-${{ matrix.target }}"
+          $name = "nospoon-windows-x86_64-${{ matrix.variant }}"
+          $stage = "dist/$name"
           New-Item -ItemType Directory -Force -Path $stage
           Copy-Item cpp\build\nospoon.exe $stage\
           Copy-Item cpp\bin\win32-x64\wintun.dll $stage\
@@ -128,25 +227,22 @@ jobs:
           Copy-Item README.md $stage\
           Copy-Item config.example.jsonc $stage\
           Get-ChildItem $stage
-          Compress-Archive -Path $stage -DestinationPath "dist/nospoon-${{ matrix.target }}.zip"
+          Compress-Archive -Path $stage -DestinationPath "dist/$name.zip"
 
-      # === Upload as workflow artifact (always) =========================
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: nospoon-${{ matrix.target }}
-          path: dist/nospoon-${{ matrix.target }}.${{ matrix.archive_ext }}
+          name: nospoon-windows-x86_64-${{ matrix.variant }}
+          path: dist/nospoon-windows-x86_64-${{ matrix.variant }}.zip
           if-no-files-found: error
           retention-days: 30
 
   # ====================================================================
-  # Single release job: collect every per-target archive and attach them
-  # to the GitHub release that the tag triggered. Skipped on manual fires.
+  # Collect every per-target archive and attach them to the GitHub
+  # release that the tag triggered. Skipped on manual fires.
   # ====================================================================
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [linux, macos, windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
