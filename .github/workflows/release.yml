@@ -62,6 +62,14 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
             extra-platforms = aarch64-linux
+            # The aarch64 musl-static closure is NOT on cache.nixos.org
+            # (its libuv-static-aarch64 narinfo 404s). Without this
+            # substituter the ARM job rebuilds that whole toolchain under
+            # emulation, and libuv's own test suite fails there — qemu gets
+            # its timing/process tests wrong. With it, the job substitutes
+            # the same paths a local build does and never compiles them.
+            extra-substituters = https://nix-community.cachix.org
+            extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
 
       - name: Build
         run: |
