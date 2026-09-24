@@ -73,11 +73,23 @@ target_compile_definitions(nospoon PRIVATE NDEBUG)
 option(NOSPOON_FETCH_HYPERDHT
     "Fetch hyperdht-cpp via CMake FetchContent (one-command build)" ON)
 
+# Verbose DHT_LOG to stderr in hyperdht-cpp. Declared HERE, by name, rather
+# than left to hyperdht's own option() picking up a -D from the command line:
+# the v0.5.0 Windows *release* binary shipped with the debug strings compiled
+# in (17 "[announcer]" format literals, including peer-address formats) even
+# though the job passed -DHYPERDHT_DEBUG=OFF, while Linux and macOS came out
+# clean from the same flag. Owning the variable and FORCE-ing it into the
+# cache below removes the ambiguity. The CI jobs assert the result on the
+# artifact, which is what actually catches a regression here.
+option(HYPERDHT_DEBUG "Build hyperdht-cpp with verbose DHT_LOG to stderr" OFF)
+message(STATUS "HYPERDHT_DEBUG: ${HYPERDHT_DEBUG}")
+
 if(NOSPOON_FETCH_HYPERDHT)
     include(FetchContent)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(HYPERDHT_EXPORT_CXX ON CACHE BOOL "" FORCE)
     set(HYPERDHT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(HYPERDHT_DEBUG ${HYPERDHT_DEBUG} CACHE BOOL "" FORCE)
     FetchContent_Declare(hyperdht
         GIT_REPOSITORY https://github.com/jjacke13/hyperdht-cpp.git
         GIT_TAG 95cb5d94c119f654b83bb3a91a0cdc5db2355c65

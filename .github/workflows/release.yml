@@ -173,6 +173,20 @@ jobs:
             -DCMAKE_PREFIX_PATH="$HOME/libuv"
           cmake --build cpp/build -j
 
+      - name: Verify the variant is what it claims
+        run: |
+          # Same assertion the linux job makes. It was missing here and on
+          # Windows, which is how a release binary with DHT_LOG compiled in
+          # shipped in v0.5.0 — the strings include peer addresses.
+          n=$(strings cpp/build/nospoon | grep -c '\[announcer\]' || true)
+          echo "DHT_LOG markers: $n"
+          if [ "${{ matrix.variant }}" = "debug" ] && [ "$n" -eq 0 ]; then
+            echo "::error::debug variant has no DHT_LOG markers"; exit 1
+          fi
+          if [ "${{ matrix.variant }}" = "release" ] && [ "$n" -ne 0 ]; then
+            echo "::error::release variant contains DHT_LOG markers"; exit 1
+          fi
+
       - name: Stage
         run: |
           name=nospoon-macos-aarch64-${{ matrix.variant }}
@@ -279,6 +293,25 @@ jobs:
               Write-Host "::error::nospoon.exe imports $bad — needs the VC++ Redistributable, not self-contained"
               exit 1
             }
+          }
+
+      - name: Verify the variant is what it claims
+        shell: pwsh
+        # The assertion the linux job already made and this one did not,
+        # which is how the v0.5.0 Windows *release* binary shipped with
+        # DHT_LOG compiled in — 17 "[announcer]" literals, peer-address
+        # formats among them. There is no `strings` on the runner, so scan
+        # the bytes directly.
+        run: |
+          $bytes = [System.IO.File]::ReadAllBytes("cpp\build\nospoon.exe")
+          $text  = [System.Text.Encoding]::ASCII.GetString($bytes)
+          $n = ([regex]::Matches($text, '\[announcer\]')).Count
+          Write-Host "DHT_LOG markers: $n"
+          if ('${{ matrix.variant }}' -eq 'debug' -and $n -eq 0) {
+            Write-Host "::error::debug variant has no DHT_LOG markers"; exit 1
+          }
+          if ('${{ matrix.variant }}' -eq 'release' -and $n -ne 0) {
+            Write-Host "::error::release variant contains DHT_LOG markers"; exit 1
           }
 
       - name: Stage
