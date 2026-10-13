@@ -1,6 +1,7 @@
 # TODO
 
-Loose threads from the initial port, in rough priority order.
+Remaining work from the initial port, in rough priority order.
+Reconciled with source on 2026-10-13; implemented items are listed separately below.
 
 ## High
 
@@ -20,21 +21,7 @@ Loose threads from the initial port, in rough priority order.
   IPv6-over-tunnel is not supported and the IPv6 TUN address is
   local-only.
 
-- **Restart the DHT after persistent failures, not just drop routes.**
-  Today we drop full-tunnel routes after 3 consecutive failures so
-  DHT can reach bootstrap again. JS impl additionally destroys the
-  whole HyperDHT instance and creates a fresh one. Closer to JS
-  behavior, but adds lifetime complexity (DHT lives behind a
-  unique_ptr, lambdas need to handle the swap).
-
 ## Low / nice-to-have
-
-- **Static-build option for single-file distribution.** Add a
-  `HYPERDHT_STATIC` CMake flag that switches from `find_package(hyperdht
-  CONFIG)` to linking the static archive + udx.a, plus
-  `-ffunction-sections -Wl,--gc-sections -flto` for size. Drops the
-  runtime `libhyperdht.so` dependency. Useful when shipping nospoon
-  as a single binary to users who don't have hyperdht-cpp installed.
 
 - **Per-connection keepalive timer instead of one global tick.** JS
   starts a keepalive interval per connection. We have one global 25s
@@ -42,6 +29,17 @@ Loose threads from the initial port, in rough priority order.
   asymmetric peer load, slightly less code. Probably never matters in
   practice.
 
-- **GitHub Actions CI.** No workflow shipped yet for this repo —
-  Linux + macOS builds + a Windows build (the Windows artifact is
-  currently produced by hyperdht-cpp's CI; should move here).
+## Implemented
+
+- **Restart the DHT after persistent failures.** `cpp/client.cpp` drops
+  active full-tunnel routes after three failures, destroys the old DHT and
+  binds a fresh instance. Generation checks reject stale callbacks; old
+  instance deletion is deferred while libuv drains close callbacks.
+- **Single-file Linux distribution.** `flake.nix` builds native fully-static
+  musl `nospoon-cpp` and `nospoon-cpp-debug` outputs with the transport and
+  dependencies linked in. macOS remains dynamic; Windows also needs
+  `wintun.dll`. No additional `HYPERDHT_STATIC` switch is needed.
+- **GitHub Actions release builds.** `.github/workflows/release.yml` builds
+  release/debug variants for Linux x86_64/aarch64, macOS arm64 and Windows
+  x86_64, with artifact checks. It runs on version tags or manual dispatch;
+  this does not provide a push/PR test gate.
