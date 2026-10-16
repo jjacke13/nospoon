@@ -13,6 +13,7 @@ permalink: /
 <a class="play-badge" href="https://play.google.com/store/apps/details?id=com.nospoon.vpn"><img src="{{ '/assets/images/google-play-badge.png' | relative_url }}" width="210" height="81" alt="Get nospoon on Google Play"></a>
 </div>
 <p class="hero-platforms">Android · Linux · macOS · Windows</p>
+<p class="hero-tagline"><em>nospoon: If you stop believing in boundaries, they disappear.</em><br><span>Inspired by <cite>The Matrix</cite></span></p>
 </section>
 
 <div class="notice"><strong>New here?</strong> You do not need to know how peer-to-peer networking works. Start with the explanation below, then choose whether you want to join a network or create one.</div>
