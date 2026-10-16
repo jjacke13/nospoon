@@ -1,0 +1,16 @@
+- title: Meet nospoon
+  url: /
+- title: Your first connection
+  url: /getting-started.html
+- title: Installation
+  url: /install.html
+- title: Server setup
+  url: /server.html
+- title: Android app
+  url: /android.html
+- title: Routing & full tunnel
+  url: /routing.html
+- title: Configuration & commands
+  url: /configuration.html
+- title: Troubleshooting
+  url: /troubleshooting.html

@@ -4,6 +4,8 @@
 
 A peer-to-peer VPN that **eliminates the need for a publicly reachable server**. Built on [HyperDHT](https://github.com/holepunchto/hyperdht) for NAT hole-punching and Noise-encrypted tunnels. No public IP, no port forwarding, no central infrastructure — just a key.
 
+**New to nospoon?** Start with the [user guide](https://jjacke13.github.io/nospoon/) for a plain-language introduction, setup instructions and troubleshooting.
+
 ## Two implementations, one wire protocol
 
 nospoon ships in two interchangeable implementations:
@@ -124,8 +126,10 @@ docker run --network=host --cap-add=NET_ADMIN --device /dev/net/tun \
 The Kotlin VPN client lives in its own repository,
 [nospoon-android](https://github.com/jjacke13/nospoon-android) (split out of
 `android/` with history on 2026-09-14). It speaks the same wire protocol and
-reads the same client config format as the desktop clients; see
-[docs/ANDROID.md](docs/ANDROID.md).
+reads the same client config format as the desktop clients. Get the app on
+[Google Play](https://play.google.com/store/apps/details?id=com.nospoon.vpn)
+and follow the [Android user guide](https://jjacke13.github.io/nospoon/android.html).
+Developer information remains in [docs/ANDROID.md](docs/ANDROID.md).
 
 ## Use Cases
 
@@ -198,7 +202,10 @@ Client config:
 }
 ```
 
-Kill switch included: if the tunnel drops, traffic fails instead of leaking.
+Windows servers do not support this mode. Desktop clients can temporarily
+remove full-tunnel routes during recovery after repeated failures, so this
+is not an unconditional permanent kill switch. See the
+[routing guide](https://jjacke13.github.io/nospoon/routing.html).
 
 ## Config Reference
 
@@ -276,7 +283,9 @@ nospoon up config.jsonc
 
 Default config path: `%PROGRAMDATA%\nospoon\config.jsonc`
 
-Full-tunnel mode works (IPv4 + IPv6 leak prevention). The Wintun prebuilt DLLs are distributed under a [permissive license](js/bin/win32-x64/LICENSE.txt) by WireGuard LLC.
+Windows clients can use full-tunnel mode with a supported Linux or macOS
+server. **Windows servers do not support full-tunnel mode**; leave it off
+on clients connecting to a Windows server. The Wintun prebuilt DLLs are distributed under a [permissive license](js/bin/win32-x64/LICENSE.txt) by WireGuard LLC.
 
 ## Limitations
 

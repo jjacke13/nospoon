@@ -5,13 +5,11 @@
 # is enabled in repo Settings → Pages.
 
 title: nospoon
-description: Peer-to-peer encrypted VPN over a distributed hash table
+description: Simple guides to connecting your devices with nospoon. Server setup, desktop and Android clients, routing, configuration and troubleshooting.
 url: https://jjacke13.github.io
 baseurl: /nospoon
 
-# Minimal Jekyll theme bundled with GitHub Pages — no extra deps,
-# renders Markdown cleanly, mobile-friendly.
-theme: jekyll-theme-minimal
+# Custom layout and local CSS; no theme or external fonts required.
 
 # Repo metadata picked up by some themes.
 github:

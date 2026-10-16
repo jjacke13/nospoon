@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title | escape }} · nospoon docs</title>
+  <meta name="description" content="{{ page.description | default: site.description | escape }}">
+  <link rel="stylesheet" href="{{ '/assets/css/docs.css' | relative_url }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="{{ '/' | relative_url }}">nospoon<span>docs</span></a>
+    <a class="source-link" href="https://github.com/jjacke13/nospoon">Source on GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <div class="docs-shell">
+    <aside class="sidebar">
+      <p class="nav-label">The user guide</p>
+      <nav aria-label="Documentation">
+        {% for item in site.data.navigation %}
+        <a href="{{ item.url | relative_url }}"{% if page.url == item.url %} aria-current="page"{% endif %}>{{ item.title | escape }}</a>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-note">Start small.<br>Connect one device.<br>Make the network yours.</div>
+      <a class="privacy-link" href="{{ '/privacy.html' | relative_url }}">Privacy policy</a>
+    </aside>
+    <main id="main" tabindex="-1">
+      <article class="content">{{ content }}</article>
+      <footer>nospoon · Free and open source<br><a href="https://github.com/jjacke13/nospoon/issues">Help & feedback</a> <span aria-hidden="true">·</span> <a href="{{ '/privacy.html' | relative_url }}">Privacy</a></footer>
+    </main>
+  </div>
+</body>
+</html>
