@@ -10,7 +10,7 @@ permalink: /
 <p class="lead">Home computer. Remote server. Phone in your pocket. Bring them together with nospoon—your own encrypted, private network.</p>
 <div class="hero-actions">
 <a class="hero-button" href="getting-started.html">Get started <span aria-hidden="true">↗</span></a>
-<a class="play-badge" href="https://play.google.com/store/apps/details?id=com.nospoon.vpn"><img src="{{ '/assets/images/google-play-badge.png' | relative_url }}" width="210" height="81" alt="Get nospoon on Google Play"></a>
+<span class="hero-button">F-Droid <span>Coming soon</span></span>
 </div>
 <p class="hero-platforms">Android · Linux · macOS · Windows</p>
 <p class="hero-tagline"><em>nospoon: If you stop believing in boundaries, they disappear.</em><br><span>Inspired by <cite>The Matrix</cite></span></p>
