@@ -17,7 +17,7 @@ Treat that file or QR code like a password. Do not post it publicly. Using the s
 
 ## 2. Install nospoon
 
-- **Android:** install [nospoon from Google Play](https://play.google.com/store/apps/details?id=com.nospoon.vpn).
+- **Android:** install the APK from [nospoon Android releases](https://github.com/jjacke13/nospoon-android/releases).
 - **Linux, macOS or Windows:** follow [installation](install.html).
 
 ## 3. Connect

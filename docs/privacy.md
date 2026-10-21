@@ -5,7 +5,7 @@ title: Privacy Policy — nospoon
 
 # nospoon Privacy Policy
 
-**Last updated:** 2026-05-27
+**Last updated:** 2026-10-21
 
 nospoon does not collect, store, or transmit any personal data to
 anyone other than the peer(s) you explicitly configure.
@@ -36,8 +36,9 @@ uses them solely for the stated purposes:
 - **Internet** — required for the encrypted peer-to-peer connection.
 - **Camera** — optional, used only by the in-app QR-code scanner when
   you choose to import a configuration via QR code. The app does not
-  store or transmit camera frames; QR decoding runs locally via
-  Google's on-device ML Kit code scanner.
+  store or transmit camera frames; QR decoding runs on-device using
+  bundled ZXing. File import and manual entry are available without
+  camera permission.
 
 ## Network traffic
 
@@ -55,12 +56,13 @@ respective devices.
 
 ## Third-party services
 
-The application uses two services from Google Play Services for
-on-device functionality only:
+The application uses the following scanner library and network
+infrastructure:
 
-- **Google Code Scanner / ML Kit** — for the optional in-app QR code
-  scanner. Runs entirely on-device. Google's privacy notice for ML
-  Kit applies if you choose to use the scanner.
+- **Bundled ZXing scanner** — for optional in-app QR code scanning.
+  Decoding runs on-device and requires no Google Play Services or
+  first-use scanner download. Camera access is optional; file import
+  and manual entry remain available without it.
 - **HyperDHT bootstrap nodes** — to join the distributed hash table.
   These are public infrastructure nodes operated by the HyperDHT
   community; they see only that your device queried for a peer's

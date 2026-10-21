@@ -11,7 +11,7 @@ The desktop C++ version, **nospoon-cpp**, is recommended. The Node.js version is
 
 ## Android
 
-Install [nospoon from Google Play](https://play.google.com/store/apps/details?id=com.nospoon.vpn), then follow the [Android guide](android.html). The app connects to an existing nospoon server; it does not host one.
+Install the APK from [nospoon Android releases](https://github.com/jjacke13/nospoon-android/releases), then follow the [Android guide](android.html). The app connects to an existing nospoon server; it does not host one.
 
 ## Linux
 

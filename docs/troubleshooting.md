@@ -44,7 +44,7 @@ Tap the configuration again and allow the Android VPN request. If another VPN ap
 
 ## Android QR scan or file import fails
 
-QR scanning needs Google Play Services; its first launch may need to download a component. Try file import or manual entry if scanning is unavailable.
+QR decoding runs on-device using bundled ZXing and needs no Google Play Services or first-use scanner download. Allow the optional camera permission when prompted; if scanning does not open, check the app's camera permission in Android settings. Use file import or manual entry if scanning is unavailable.
 
 Import a complete client configuration with a `server` field. Check that the server key and seed have 64 hexadecimal characters and that the IP has its prefix, such as `10.0.0.2/24`.
 

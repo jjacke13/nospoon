@@ -7,7 +7,7 @@ permalink: /android.html
 <p class="eyebrow">Android</p>
 # Connect your phone
 
-Install [nospoon from Google Play](https://play.google.com/store/apps/details?id=com.nospoon.vpn). You need a running nospoon server and a client configuration, or the settings provided by its administrator.
+Install the APK from [nospoon Android releases](https://github.com/jjacke13/nospoon-android/releases). You need a running nospoon server and a client configuration, or the settings provided by its administrator.
 
 ## Import a configuration
 
@@ -49,6 +49,6 @@ See [routing](routing.html) before using full tunnel. The app's current configur
 
 ## QR scanning does not open
 
-The scanner uses Google Play Services. Make sure Play Services is available and give the first scan time to download its scanning component. You can use file import or manual entry instead.
+QR scanning is built into the app and does not require Google Play Services or a scanner download. Allow camera access when prompted. If scanning does not open, check the app's camera permission in Android settings. You can also import a configuration file or enter the settings manually.
 
 More help: [Troubleshooting](troubleshooting.html) · [Privacy policy](privacy.html)
