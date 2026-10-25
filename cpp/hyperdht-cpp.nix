@@ -25,7 +25,8 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to 95cb5d9. Adds ConnectError::name() — the library strerror()
+  # Pinned to cdde7b8: relay/announcement fixes and safe graceful shutdown.
+  # Previous pin 95cb5d9 adds ConnectError::name() — the library strerror()
   # that cpp/connect_error.hpp used to duplicate. Everything below is the
   # 9580f99 (upstream 0.5.0) 2026-08-22 server punch-socket
   # batch, 36 commits. In order of impact on nospoon:
@@ -102,13 +103,13 @@ stdenv.mkDerivation (finalAttrs: {
   #            what stops nospoon's TUN address being announced.
   #
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0.5.0-unstable-2026-08-22";
+  version = "0.5.0-unstable-2026-10-25";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "95cb5d94c119f654b83bb3a91a0cdc5db2355c65";
-    hash = "sha256-Us8KrMcjQe5CLGuXvn3/2hHaaumtH9VOeU/ZUdiS2v4=";
+    rev = "cdde7b8c793593c2ff61fc4c45f17156e13e4e76";
+    hash = "sha256-qAZqpuB/eGCLbqRvpaxrOyBHxtuwdgA6DAHLNkUi47g=";
     fetchSubmodules = true;
   };
 

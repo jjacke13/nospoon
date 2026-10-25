@@ -23,6 +23,7 @@ using namespace nospoon;
 namespace {
 
 struct PeerState {
+    std::shared_ptr<void> socket_keepalive;  // Outlive the duplex using this punch socket.
     std::unique_ptr<secret_stream::SecretStreamDuplex> duplex;
     FrameDecoder decoder;
     std::string assigned_ip;  // empty in open mode (learned from first packet)
@@ -107,6 +108,7 @@ void setup_peer_stream(ServerCtx& ctx, const server::ConnectionInfo& info) {
     // Create peer state
     auto& peer = ctx.peers[pk_hex];
     peer.duplex = std::move(duplex);
+    peer.socket_keepalive = info.socket_keepalive;
     peer.assigned_ip = peer_ip;
     peer.pk_hex = pk_hex;
 

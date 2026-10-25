@@ -38,6 +38,7 @@ struct ClientCtx {
     Config config;
     noise::Keypair keypair;
     noise::PubKey server_pk{};
+    std::shared_ptr<void> socket_keepalive;  // Outlive the duplex using this punch socket.
     std::unique_ptr<secret_stream::SecretStreamDuplex> duplex;
     FrameDecoder decoder;
     uv_timer_t keepalive_timer{};
@@ -172,6 +173,7 @@ void on_connect_result(ClientCtx& ctx, int error,
     ctx.duplex = std::make_unique<secret_stream::SecretStreamDuplex>(
         result.raw_stream, hs, ctx.dht->loop(),
         ctx.dht->make_duplex_options());
+    ctx.socket_keepalive = result.socket_keepalive;
 
     auto* duplex_ptr = ctx.duplex.get();
 
@@ -196,13 +198,13 @@ void on_connect_result(ClientCtx& ctx, int error,
         // the SecretStreamDuplex — and with it the closure we're running
         // from. Any access to `ctx` after that point loads the captured
         // reference from freed memory (UAF caught by ASAN, 2026-05-20).
-        // Workaround: stash &ctx on the stack, reorder so duplex.reset()
-        // happens last (after we no longer touch the closure).
+        // Stash &ctx on the stack; use only that pointer after duplex.reset().
         auto* c = &ctx;
         c->connected = false;
         c->decoder.reset();
         schedule_reconnect(*c);
         c->duplex.reset();
+        c->socket_keepalive.reset();
     });
 
     duplex_ptr->start();
@@ -276,6 +278,7 @@ void restart_dht(ClientCtx& ctx) {
 
     // Drop any lingering duplex from the dead connection.
     ctx.duplex.reset();
+    ctx.socket_keepalive.reset();
     ctx.decoder.reset();
     ctx.connected = false;
 
@@ -386,6 +389,7 @@ int run_client(const Config& config) {
         ctx.full_tunnel_active = false;
     }
     ctx.duplex.reset();
+    ctx.socket_keepalive.reset();
     uv_signal_stop(&sigint);
     uv_signal_stop(&sigterm);
     uv_close(reinterpret_cast<uv_handle_t*>(&sigint),  nullptr);
