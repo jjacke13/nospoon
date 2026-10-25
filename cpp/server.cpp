@@ -343,8 +343,8 @@ int run_server(const Config& config) {
     while (ctx.running && uv_run(&loop, UV_RUN_ONCE)) {}
 
     // Cleanup — order matters: drop peer streams BEFORE dht.destroy() so
-    // libudx can flush, then sweep any handles the library left active and
-    // bound the final drain so systemd never waits more than a few seconds.
+    // libudx can flush. Allow three seconds for graceful withdrawal before
+    // forcing local close; sweep only after the DHT has closed its own handles.
     if (full_tunnel_enabled) {
         full_tunnel::disable_server_forwarding();
     }
@@ -358,14 +358,15 @@ int run_server(const Config& config) {
     ctx.tun.close();
     dht.destroy();
 
-    uv_walk(&loop, [](uv_handle_t* h, void*) {
-        if (!uv_is_closing(h)) uv_close(h, nullptr);
-    }, nullptr);
-
     uint64_t deadline = uv_hrtime() + 3ULL * 1000 * 1000 * 1000;
     while (uv_loop_alive(&loop) && uv_hrtime() < deadline) {
         uv_run(&loop, UV_RUN_NOWAIT);
     }
+    dht.destroy(HyperDHT::DestroyOptions{.force = true});
+    uv_walk(&loop, [](uv_handle_t* h, void*) {
+        if (!uv_is_closing(h)) uv_close(h, nullptr);
+    }, nullptr);
+    uv_run(&loop, UV_RUN_DEFAULT);
     uv_loop_close(&loop);
     return 0;
 }

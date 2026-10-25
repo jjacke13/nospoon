@@ -257,14 +257,9 @@ void restart_dht(ClientCtx& ctx) {
     // discarded when it eventually fires.
     ctx.dht_generation++;
 
-    // Hand the old DHT off to async destroy. The library's destroy()
-    // callback fires SYNCHRONOUSLY (it signals "destruction started",
-    // not "fully done" — see SECURITY-AUDIT.md C9). Deleting the
-    // HyperDHT inside the callback runs ~RpcSocket while libuv still
-    // has pending uv_close callbacks for the embedded sockets — when
-    // on_uv_close (libudx udx.c:140) later derefs socket->udx it hits
-    // freed memory (ASAN-caught 2026-05-20). Defer the actual delete
-    // via a uv_timer so the loop has time to drain.
+    // This client DHT has no listening servers, so destroy schedules local
+    // close immediately. Its completion callback still precedes libuv's close
+    // drain: defer deletion so the embedded UDX storage survives that drain.
     auto old = std::move(ctx.dht);
     if (old) {
         HyperDHT* raw = old.release();
@@ -384,8 +379,8 @@ int run_client(const Config& config) {
     while (ctx.running && uv_run(&loop, UV_RUN_ONCE)) {}
 
     // Cleanup — close the SecretStream + timers + TUN before destroying the
-    // DHT, then sweep anything libudx left active and bound the final drain
-    // so systemd never waits more than a few seconds.
+    // DHT. Allow three seconds for graceful withdrawal before forcing local
+    // close; sweep only after the DHT has closed its own handles.
     if (ctx.full_tunnel_active) {
         full_tunnel::disable_client_full_tunnel();
         ctx.full_tunnel_active = false;
@@ -402,14 +397,15 @@ int run_client(const Config& config) {
     ctx.tun.close();
     if (ctx.dht) ctx.dht->destroy();
 
-    uv_walk(&loop, [](uv_handle_t* h, void*) {
-        if (!uv_is_closing(h)) uv_close(h, nullptr);
-    }, nullptr);
-
     uint64_t deadline = uv_hrtime() + 3ULL * 1000 * 1000 * 1000;
     while (uv_loop_alive(&loop) && uv_hrtime() < deadline) {
         uv_run(&loop, UV_RUN_NOWAIT);
     }
+    if (ctx.dht) ctx.dht->destroy(HyperDHT::DestroyOptions{.force = true});
+    uv_walk(&loop, [](uv_handle_t* h, void*) {
+        if (!uv_is_closing(h)) uv_close(h, nullptr);
+    }, nullptr);
+    uv_run(&loop, UV_RUN_DEFAULT);
     ctx.dht.reset();
     uv_loop_close(&loop);
     return 0;
