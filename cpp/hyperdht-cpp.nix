@@ -25,7 +25,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to cdde7b8: relay/announcement fixes and safe graceful shutdown.
+  # Pinned to 8a04684: tested query, socket and error-reporting fixes.
   # Previous pin 95cb5d9 adds ConnectError::name() — the library strerror()
   # that cpp/connect_error.hpp used to duplicate. Everything below is the
   # 9580f99 (upstream 0.5.0) 2026-08-22 server punch-socket
@@ -103,13 +103,13 @@ stdenv.mkDerivation (finalAttrs: {
   #            what stops nospoon's TUN address being announced.
   #
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0.5.0-unstable-2026-10-25";
+  version = "0.5.0-unstable-2026-10-27";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "cdde7b8c793593c2ff61fc4c45f17156e13e4e76";
-    hash = "sha256-qAZqpuB/eGCLbqRvpaxrOyBHxtuwdgA6DAHLNkUi47g=";
+    rev = "8a04684e0c29600037ce8a23ae62c2ae583b47ee";
+    hash = "sha256-yLZXAW7FFfaJxUa1vbQ5EHQmjyCj1Nouw17kVe8B2XA=";
     fetchSubmodules = true;
   };
 
