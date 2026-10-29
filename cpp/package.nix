@@ -20,7 +20,7 @@
   # Debug logging in the DHT layer. Threaded down to hyperdht-cpp.nix so the
   # `*-debug` flake outputs are one argument, not a separate derivation file.
   debug ? false,
-  hyperdht-cpp ? callPackage ./hyperdht-cpp.nix { inherit debug; },
+  hyperdht-cpp ? callPackage ./hyperdht-cpp.nix { inherit debug libsodium libuv; },
   # Wrap the binary so iptables/ip/sysctl are on PATH. Only meaningful when the
   # result runs on a Nix machine: a fully-static cross build gets scp'd to a
   # plain Debian/Pi box where the wrapper's /nix/store shebang and PATH entries

@@ -11,9 +11,13 @@
     # rebuilds nospoon against your (possibly newer) nixpkgs and reintroduces
     # the bug. Let nospoon keep its own nixpkgs.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    libsodium = {
+      url = "github:jedisct1/libsodium/77e1ce5d6dee871c49ef211222ba18ef0c486bda";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, libsodium }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
 
@@ -41,7 +45,7 @@
       # resolves `ip` from its own /usr/sbin.
       #
       # macOS keeps the dynamic build — there is no musl-static equivalent,
-      # and libsodium/libuv come from nixpkgs anyway.
+      # with the same pinned libsodium and Nixpkgs libuv.
       #
       # Every Linux output is NATIVE: `packages.<system>` builds for that
       # system's own architecture and nothing else. There are deliberately no
@@ -63,11 +67,19 @@
       packages = forAllSystems ({ pkgs, system }: let
         nospoon-js = pkgs.callPackage ./js/package.nix { };
 
+        cpp = buildPkgs: debug: buildPkgs.callPackage ./cpp/package.nix {
+          inherit debug;
+          libsodium = buildPkgs.libsodium.overrideAttrs {
+            version = "1.0.22";
+            src = libsodium;
+          };
+        };
+
         static = target: debug:
-          (import nixpkgs {
+          cpp (import nixpkgs {
             inherit system;
             crossSystem = { config = target; };
-          }).pkgsStatic.callPackage ./cpp/package.nix { inherit debug; };
+          }).pkgsStatic debug;
 
         # Always the builder's own architecture. `crossSystem` below only
         # swaps glibc for musl; it never changes arch.
@@ -82,8 +94,8 @@
         };
 
         darwin = rec {
-          nospoon-cpp = pkgs.callPackage ./cpp/package.nix { };
-          nospoon-cpp-debug = pkgs.callPackage ./cpp/package.nix { debug = true; };
+          nospoon-cpp = cpp pkgs false;
+          nospoon-cpp-debug = cpp pkgs true;
           default = nospoon-cpp;
         };
       in

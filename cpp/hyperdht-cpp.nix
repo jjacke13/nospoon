@@ -4,9 +4,8 @@
 # C FFI) so that nospoon-cpp can link against internal classes like
 # `HyperDHT`, `Server`, `SecretStreamDuplex` etc.
 #
-# The repo bundles libudx as a git submodule under `deps/libudx`. We
-# pull it in with `fetchSubmodules = true`; CMake builds it statically
-# and folds it into libhyperdht.
+# Fetch all pinned submodules, including v0.6.0's libuv/libsodium sources.
+# CMake builds libudx; libuv/libsodium still come from the caller's inputs.
 
 {
   lib,
@@ -25,7 +24,7 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "hyperdht-cpp";
-  # Pinned to 8a04684: tested query, socket and error-reporting fixes.
+  # Pinned to the v0.6.0 release (immutable commit below).
   # Previous pin 95cb5d9 adds ConnectError::name() — the library strerror()
   # that cpp/connect_error.hpp used to duplicate. Everything below is the
   # 9580f99 (upstream 0.5.0) 2026-08-22 server punch-socket
@@ -103,13 +102,13 @@ stdenv.mkDerivation (finalAttrs: {
   #            what stops nospoon's TUN address being announced.
   #
   # Bump together with `rev` + `hash` when upstream advances.
-  version = "0.5.0-unstable-2026-10-27";
+  version = "0.6.0";
 
   src = fetchFromGitHub {
     owner = "jjacke13";
     repo = "hyperdht-cpp";
-    rev = "8a04684e0c29600037ce8a23ae62c2ae583b47ee";
-    hash = "sha256-yLZXAW7FFfaJxUa1vbQ5EHQmjyCj1Nouw17kVe8B2XA=";
+    rev = "7967fa909e9145b91483c087774b91267d935feb";
+    hash = "sha256-8B415QjvsnQJVAESyF4ZJJ1qY0CyY/vc//XCSvRTXYA=";
     fetchSubmodules = true;
   };
 

@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "libsodium": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775768406,
+        "narHash": "sha256-k8u7iNqvjLA0PptbneDyE8zCtutJlV2LirrRb41tmBY=",
+        "owner": "jedisct1",
+        "repo": "libsodium",
+        "rev": "77e1ce5d6dee871c49ef211222ba18ef0c486bda",
+        "type": "github"
+      },
+      "original": {
+        "owner": "jedisct1",
+        "repo": "libsodium",
+        "rev": "77e1ce5d6dee871c49ef211222ba18ef0c486bda",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1782847189,
@@ -18,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "libsodium": "libsodium",
         "nixpkgs": "nixpkgs"
       }
     }
