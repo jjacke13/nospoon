@@ -13,10 +13,8 @@ name: Release nospoon-cpp binaries
 #             default download.
 #
 # Linux artifacts are fully-static musl single binaries built from the
-# flake (`.#nospoon-cpp-<arch>[-debug]`): zero runtime deps, no
-# glibc-version risk, and byte-identical to what `nix build` gives a
-# developer. They are cross-compiled for aarch64 from the x86_64 runner,
-# so no ARM runner is needed.
+# flake's per-system outputs: zero runtime deps and no glibc-version risk.
+# Each architecture uses a native runner.
 #
 # macOS builds with the platform toolchain — there is no musl-static
 # equivalent there, so libsodium/libuv stay dynamic.
@@ -124,7 +122,7 @@ jobs:
 
   # ====================================================================
   # macOS — platform toolchain. No static-musl equivalent; libsodium and
-  # libuv come from brew and stay dynamic.
+  # libuv are built from pinned sources and stay dynamic.
   # ====================================================================
   macos:
     name: Build (macos-aarch64-${{ matrix.variant }})
@@ -139,19 +137,27 @@ jobs:
       - name: Install deps
         run: |
           brew update
-          # NOT libuv from brew. Homebrew ships 1.52.x, which has the UDP
-          # POLLERR regression (libuv #4902 / #5030) that silently wedges
-          # established streams on real paths — that is how libuv 1.52.1
-          # got into the v0.5.0 Windows binaries. Homebrew has no libuv@1.51
-          # formula to pin to, so build 1.51.0 from source; it takes seconds.
-          brew install cmake ninja pkg-config libsodium
+          brew install cmake ninja pkg-config
+
+      - name: Build libsodium 1.0.22
+        run: |
+          curl -fsSL -o libsodium.tar.gz \
+            https://github.com/jedisct1/libsodium/archive/77e1ce5d6dee871c49ef211222ba18ef0c486bda.tar.gz
+          tar xzf libsodium.tar.gz
+          cd libsodium-77e1ce5d6dee871c49ef211222ba18ef0c486bda
+          ./configure --prefix="$HOME/libsodium"
+          make
+          make check
+          make install
+          export PKG_CONFIG_PATH="$HOME/libsodium/lib/pkgconfig"
+          test "$(pkg-config --modversion libsodium)" = 1.0.22
 
       - name: Build libuv 1.51.0
         run: |
           curl -fsSL -o libuv.tar.gz \
-            https://github.com/libuv/libuv/archive/refs/tags/v1.51.0.tar.gz
+            https://github.com/libuv/libuv/archive/5152db2cbfeb5582e9c27c5ea1dba2cd9e10759b.tar.gz
           tar xzf libuv.tar.gz
-          cmake -S libuv-1.51.0 -B libuv-build -G Ninja \
+          cmake -S libuv-5152db2cbfeb5582e9c27c5ea1dba2cd9e10759b -B libuv-build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$HOME/libuv" \
             -DLIBUV_BUILD_TESTS=OFF \
@@ -164,11 +170,11 @@ jobs:
         # hyperdht-cpp resolves libuv through pkg-config. Without both, a
         # brew libuv pulled in as some other formula's dependency wins.
         run: |
-          export PKG_CONFIG_PATH="$HOME/libuv/lib/pkgconfig"
+          export PKG_CONFIG_PATH="$HOME/libuv/lib/pkgconfig:$HOME/libsodium/lib/pkgconfig"
           cmake -S cpp -B cpp/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DHYPERDHT_DEBUG=${{ matrix.variant == 'debug' && 'ON' || 'OFF' }} \
-            -DCMAKE_PREFIX_PATH="$HOME/libuv"
+            -DCMAKE_PREFIX_PATH="$HOME/libuv;$HOME/libsodium"
           cmake --build cpp/build -j
 
       - name: Verify the variant is what it claims
@@ -229,25 +235,12 @@ jobs:
       - name: Prepare vcpkg (manifest mode)
         shell: pwsh
         run: |
-          # vcpkg is pre-installed on GitHub-hosted Windows runners, and its
-          # ports tree is whatever the image shipped. cpp/vcpkg.json carries
-          # a `builtin-baseline` because `overrides` requires one, but that
-          # baseline MUST match the runner's own checkout: vcpkg resolves
-          # every transitive dependency against the baseline's version
-          # database, so a baseline older than the ports tree fails with
-          # "no version database entry for <transitive dep>" (seen with
-          # pkgconf). x-update-baseline rewrites it to the local HEAD,
-          # leaving the libuv override — the thing we actually care about —
-          # untouched. libuv 1.51.0 stays resolvable because the version
-          # database is append-only.
-          vcpkg version
-          vcpkg x-update-baseline --x-manifest-root=cpp
-          Write-Host "--- cpp/vcpkg.json after baseline update ---"
-          Get-Content cpp/vcpkg.json
-          # No `vcpkg install` here: in manifest mode the CMake toolchain
-          # installs cpp/vcpkg.json's dependencies at configure time, into
-          # cpp/build/vcpkg_installed. Installing in classic mode as well
-          # would pull the UNPINNED libuv and defeat the point.
+          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
+          "VCPKG_ROOT=$env:VCPKG_ROOT" >> $env:GITHUB_ENV
+          $manifest = Get-Content cpp/vcpkg.json -Raw | ConvertFrom-Json
+          git -C "$env:VCPKG_ROOT" fetch --no-tags origin $manifest.'builtin-baseline'
+          if ($LASTEXITCODE -ne 0) { throw 'could not fetch pinned vcpkg baseline' }
+          # CMake installs the pinned manifest into cpp/build/vcpkg_installed.
 
       - name: Configure + build
         shell: pwsh
@@ -284,6 +277,9 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=x64-windows-static `
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
           cmake --build cpp/build -j
+          if ($LASTEXITCODE -ne 0) { throw 'Nospoon build failed' }
+          $header = Get-Content cpp/build/vcpkg_installed/x64-windows-static/include/sodium/version.h -Raw
+          if ($header -notmatch 'SODIUM_VERSION_STRING\s+"1\.0\.22"') { throw 'unexpected libsodium version' }
 
       - name: Verify only wintun.dll is a non-system import
         shell: pwsh

@@ -1,30 +1,24 @@
 {
   "$comment": [
-    "Manifest mode, used by the Windows build only. It exists to PIN libuv.",
-    "Classic `vcpkg install libuv:x64-windows-static` resolves to whatever is",
-    "current, which put libuv 1.52.1 into the v0.5.0 Windows binaries — the",
-    "version with the UDP POLLERR regression that silently wedges established",
-    "connections (libuv #4902 / #5030, see hyperdht-cpp/docs/LIBUV-VERSION.md).",
-    "cpp/CMakeLists.txt fails the build if the resolved version is a bad one;",
-    "this file is what keeps it from being resolved in the first place.",
-    "",
-    "libsodium is deliberately left unpinned: no known version constraint.",
-    "builtin-baseline must match the vcpkg checkout in use: every transitive",
-    "dep resolves against that baseline's version database. CI runs",
-    "`vcpkg x-update-baseline` to rewrite it to the local HEAD; the libuv",
-    "override survives that and is the part that matters."
+    "Windows manifest pins libuv 1.51.0 and libsodium 1.0.22 to match HyperDHT v0.6.0.",
+    "CI fetches this exact builtin-baseline into the vcpkg checkout used by CMake."
   ],
   "name": "nospoon",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "dependencies": [
     "libsodium",
     "libuv"
   ],
-  "builtin-baseline": "dc1232a6e05dcc49703091e83743e3b4df9b9b7c",
+  "builtin-baseline": "15b12b99a227d51e21c86dffd40385439eac87a0",
   "overrides": [
     {
       "name": "libuv",
       "version": "1.51.0"
+    },
+    {
+      "name": "libsodium",
+      "version": "1.0.22",
+      "port-version": 1
     }
   ]
 }
